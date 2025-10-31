@@ -93,8 +93,6 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     text: `[100%] ${getString("startup-finish")}`,
   });
   popupWin.startCloseTimer(5000);
-
-  addon.hooks.onDialogEvents("dialogExample");
 }
 
 async function onMainWindowUnload(win: Window): Promise<void> {
@@ -167,6 +165,9 @@ function onDialogEvents(type: string) {
   switch (type) {
     case "dialogExample":
       HelperExampleFactory.dialogExample();
+      break;
+    case "openreviewDemo":
+      OpenReviewUIFactory.showOpenReviewDemo();
       break;
     case "clipboardExample":
       HelperExampleFactory.clipboardExample();

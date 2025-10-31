@@ -330,6 +330,162 @@ export class OpenReviewUIFactory {
   }
 
   /**
+   * 显示OpenReview功能演示
+   */
+  static async showOpenReviewDemo() {
+    const dialogData: { [key: string | number]: any } = {
+      inputValue: "https://openreview.net/forum?id=rJXMpikCZ",
+      loadCallback: () => {
+        ztoolkit.log(dialogData, "OpenReview Demo Dialog Opened!");
+      },
+      unloadCallback: () => {
+        ztoolkit.log(dialogData, "OpenReview Demo Dialog closed!");
+      },
+    };
+
+    const dialogHelper = new ztoolkit.Dialog(8, 2)
+      .addCell(0, 0, {
+        tag: "h1",
+        properties: { innerHTML: "OpenReview 评论提取器" },
+      })
+      .addCell(1, 0, {
+        tag: "h2",
+        properties: { innerHTML: "功能演示" },
+      })
+      .addCell(2, 0, {
+        tag: "p",
+        properties: {
+          innerHTML: "此插件可以从OpenReview网站提取论文的评论和评分信息，并将其保存到Zotero中。",
+        },
+        styles: {
+          width: "400px",
+          marginBottom: "10px",
+        },
+      })
+      .addCell(3, 0, {
+        tag: "label",
+        namespace: "html",
+        attributes: {
+          for: "openreview-url-input",
+        },
+        properties: { innerHTML: "OpenReview URL:" },
+      })
+      .addCell(
+        3,
+        1,
+        {
+          tag: "input",
+          namespace: "html",
+          id: "openreview-url-input",
+          attributes: {
+            "data-bind": "inputValue",
+            "data-prop": "value",
+            type: "text",
+            placeholder: "输入OpenReview论文URL",
+          },
+          styles: {
+            width: "300px",
+          },
+        },
+        false,
+      )
+      .addCell(4, 0, {
+        tag: "p",
+        properties: {
+          innerHTML: "支持的URL格式：<br/>• https://openreview.net/forum?id=PAPER_ID<br/>• https://openreview.net/pdf?id=PAPER_ID",
+        },
+        styles: {
+          fontSize: "12px",
+          color: "#666",
+          marginTop: "10px",
+        },
+      })
+      .addCell(
+        5,
+        0,
+        {
+          tag: "button",
+          namespace: "html",
+          attributes: {
+            type: "button",
+          },
+          listeners: [
+            {
+              type: "click",
+              listener: async (e: Event) => {
+                const url = dialogData.inputValue;
+                if (url && url.includes('openreview.net')) {
+                  this.showMessage("开始提取评论...", "default");
+                  // 这里可以调用实际的提取功能
+                  // await this.handleExtractReviews();
+                  this.showMessage("这是演示模式。在实际使用中，请选择一个Zotero条目并使用右键菜单或工具栏按钮。", "warning");
+                } else {
+                  this.showMessage("请输入有效的OpenReview URL", "error");
+                }
+              },
+            },
+          ],
+          children: [
+            {
+              tag: "div",
+              styles: {
+                padding: "5px 15px",
+                backgroundColor: "#007acc",
+                color: "white",
+                borderRadius: "3px",
+              },
+              properties: {
+                innerHTML: "演示提取功能",
+              },
+            },
+          ],
+        },
+        false,
+      )
+      .addCell(6, 0, {
+        tag: "p",
+        properties: {
+          innerHTML: "<strong>使用说明：</strong><br/>1. 在Zotero中选择一个条目<br/>2. 右键选择'提取OpenReview评论'<br/>3. 或使用工具栏的OpenReview按钮",
+        },
+        styles: {
+          fontSize: "12px",
+          marginTop: "15px",
+          padding: "10px",
+          backgroundColor: "#f5f5f5",
+          borderRadius: "3px",
+        },
+      })
+      .addButton("开始使用", "confirm", {
+        callback: (e) => {
+          this.showMessage("请在Zotero中选择条目后使用右键菜单或工具栏按钮", "default");
+        },
+      })
+      .addButton("取消", "cancel")
+      .addButton("设置", "settings", {
+        noClose: true,
+        callback: (e) => {
+          this.showSettings();
+        },
+      })
+      .setDialogData(dialogData)
+      .open("OpenReview 功能演示");
+
+    addon.data.dialog = dialogHelper;
+    await dialogData.unloadLock.promise;
+    addon.data.dialog = undefined;
+    
+    if (addon.data.alive && dialogData._lastButtonId) {
+      const buttonText = dialogData._lastButtonId === 'confirm' ? '开始使用' : 
+                        dialogData._lastButtonId === 'cancel' ? '取消' : 
+                        dialogData._lastButtonId === 'settings' ? '设置' : dialogData._lastButtonId;
+      ztoolkit.getGlobal("alert")(
+        `对话框已关闭 (${buttonText})。\n输入的URL: ${dialogData.inputValue}`
+      );
+    }
+    ztoolkit.log(dialogData);
+  }
+
+  /**
    * 注册所有UI元素
    */
   static registerAll(win?: _ZoteroTypes.MainWindow) {
