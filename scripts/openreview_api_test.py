@@ -1,5 +1,168 @@
 import openreview.api
 import getpass
+from collections import defaultdict
+
+def build_conversation_tree(notes):
+    """构建对话树结构"""
+    # 按forum和replyto组织notes
+    tree = defaultdict(list)
+    root_notes = []
+    
+    for note in notes:
+        if note.replyto is None:
+            # 根节点（主论文或顶级评审）
+            root_notes.append(note)
+        else:
+            # 回复节点
+            tree[note.replyto].append(note)
+    
+    return {'roots': root_notes, 'replies': dict(tree)}
+
+def get_note_type(note):
+    """识别note的类型"""
+    if not note.content:
+        return "Unknown"
+    
+    content_keys = set(note.content.keys())
+    
+    # 主论文
+    if 'title' in content_keys and 'authors' in content_keys and 'abstract' in content_keys:
+        return "Paper"
+    
+    # 决定
+    elif 'decision' in content_keys:
+        return "Decision"
+    
+    # 元评审
+    elif 'metareview' in content_keys:
+        return "Meta Review"
+    
+    # 正式评审
+    elif 'review' in content_keys or 'rating' in content_keys:
+        return "Official Review"
+    
+    # 作者回应
+    elif 'title' in content_keys and 'comment' in content_keys:
+        title = note.content.get('title', {}).get('value', '').lower()
+        if 'author' in title or 'response' in title:
+            return "Author Response"
+        return "Comment"
+    
+    # 评论
+    elif 'comment' in content_keys:
+        return "Comment"
+    
+    return "Other"
+
+def print_conversation_tree(tree, file_handle, level=0):
+    """递归打印对话树"""
+    indent = "  " * level
+    
+    # 将根节点按类型分组
+    paper_notes = []
+    review_notes = []
+    other_notes = []
+    
+    for root in tree['roots']:
+        note_type = get_note_type(root)
+        if note_type == "Paper":
+            paper_notes.append(root)
+        elif note_type == "Official Review":
+            review_notes.append(root)
+        else:
+            other_notes.append(root)
+    
+    # 主论文放在最前面
+    all_sorted_roots = paper_notes
+    
+    # 将所有非主论文的根节点合并，按时间从新到旧排序
+    non_paper_notes = other_notes + review_notes
+    non_paper_notes.sort(key=lambda x: x.cdate, reverse=True)
+    all_sorted_roots.extend(non_paper_notes)
+    
+    for root in all_sorted_roots:
+        note_type = get_note_type(root)
+        
+        # 获取签名信息
+        signatures = root.signatures[0] if root.signatures else "Unknown"
+        
+        # 获取标题或内容摘要
+        title = ""
+        if root.content:
+            if 'title' in root.content:
+                title = root.content['title'].get('value', '')[:100]
+            elif 'comment' in root.content:
+                title = root.content['comment'].get('value', '')[:100]
+            elif 'review' in root.content:
+                title = root.content['review'].get('value', '')[:100]
+        
+        file_handle.write(f"{indent}[{note_type}] {signatures}\n")
+        file_handle.write(f"{indent}ID: {root.id}\n")
+        if title:
+            file_handle.write(f"{indent}内容: {title}...\n")
+        file_handle.write(f"{indent}创建时间: {root.cdate}\n")
+        file_handle.write("\n")
+        
+        # 递归处理回复
+        if root.id in tree['replies']:
+            print_replies(tree['replies'][root.id], tree['replies'], file_handle, level + 1)
+
+def print_replies(replies, all_replies, file_handle, level):
+    """打印回复，根据层级使用不同的排序策略"""
+    indent = "  " * level
+    
+    if level == 1:
+        # 第一层回复（对主论文的直接回复）：按类型和时间排序
+        review_replies = []
+        other_replies = []
+        
+        for reply in replies:
+            note_type = get_note_type(reply)
+            if note_type == "Official Review":
+                review_replies.append(reply)
+            else:
+                other_replies.append(reply)
+        
+        # 评审按时间从新到旧排序
+        review_replies.sort(key=lambda x: x.cdate, reverse=True)
+        
+        # 其他类型（决定、元评审、评论）按时间从新到旧排序
+        other_replies.sort(key=lambda x: x.cdate, reverse=True)
+        
+        # 先显示决定和元评审（按时间从新到旧），然后显示其他所有回复（按时间从新到旧）
+        decision_and_meta = [r for r in other_replies if get_note_type(r) in ["Decision", "Meta Review"]]
+        other_all = [r for r in other_replies if get_note_type(r) not in ["Decision", "Meta Review"]] + review_replies
+        
+        # 其他所有回复按时间从新到旧排序
+        other_all.sort(key=lambda x: x.cdate, reverse=True)
+        
+        sorted_replies = decision_and_meta + other_all
+    else:
+        # 其他层级：按时间从前到后排序（对话的自然发展顺序）
+        sorted_replies = sorted(replies, key=lambda x: x.cdate)
+    
+    for reply in sorted_replies:
+        note_type = get_note_type(reply)
+        signatures = reply.signatures[0] if reply.signatures else "Unknown"
+        
+        # 获取标题或内容摘要
+        title = ""
+        if reply.content:
+            if 'title' in reply.content:
+                title = reply.content['title'].get('value', '')[:100]
+            elif 'comment' in reply.content:
+                title = reply.content['comment'].get('value', '')[:100]
+        
+        file_handle.write(f"{indent}↳ [{note_type}] {signatures}\n")
+        file_handle.write(f"{indent}  ID: {reply.id}\n")
+        if title:
+            file_handle.write(f"{indent}  内容: {title}...\n")
+        file_handle.write(f"{indent}  创建时间: {reply.cdate}\n")
+        file_handle.write("\n")
+        
+        # 递归处理子回复
+        if reply.id in all_replies:
+            print_replies(all_replies[reply.id], all_replies, file_handle, level + 1)
 
 print("OpenReview API 测试脚本")
 print("=" * 40)
@@ -38,75 +201,42 @@ try:
     comments = []
     main_paper = None
     
-    for note in notes:
-        if 'title' in note.content:
-            main_paper = note
-        elif 'summary' in note.content and 'rating' in note.content:
-            reviews.append(note)
-        elif 'comment' in note.content:
-            comments.append(note)
+    # 分析notes的完整结构
+    print(f"\n=== 分析Notes结构 ===")
     
-    # 显示评审详情
-    if reviews:
-        print(f"\n=== 评审详情 ({len(reviews)} 条评审) ===")
-        for i, review in enumerate(reviews):
-            print(f"\n🔍 评审 {i+1}")
-            print(f"评审者: {review.signatures[0] if review.signatures else 'Unknown'}")
+    # 将完整的note信息输出到文件
+    with open('openreview_notes_structure.txt', 'w', encoding='utf-8') as f:
+        for i, note in enumerate(notes):
+            f.write(f"=== Note {i+1} ===\n")
+            f.write(f"ID: {note.id}\n")
+            f.write(f"Forum: {note.forum}\n")
+            f.write(f"ReplyTo: {note.replyto}\n")
+            f.write(f"Signatures: {note.signatures}\n")
+            f.write(f"Readers: {note.readers}\n")
+            f.write(f"Writers: {note.writers}\n")
+            f.write(f"Invitations: {note.invitations}\n")
+            f.write(f"CDate: {note.cdate}\n")
+            f.write(f"MDate: {note.mdate}\n")
+            f.write(f"Content Keys: {list(note.content.keys()) if note.content else 'None'}\n")
+            f.write(f"Content: {note.content}\n")
+            f.write("\n" + "="*50 + "\n\n")
             
-            # 显示评分
-            if 'rating' in review.content:
-                rating = review.content['rating']['value']
-                print(f"⭐ 评分: {rating}")
-            
-            if 'confidence' in review.content:
-                confidence = review.content['confidence']['value']
-                print(f"🎯 置信度: {confidence}")
-            
-            # 显示摘要
-            if 'summary' in review.content:
-                summary = review.content['summary']['value']
-                print(f"\n📝 摘要:")
-                print(f"{summary}")
-            
-            # 显示优点
-            if 'strengths' in review.content:
-                strengths = review.content['strengths']['value']
-                print(f"\n✅ 优点:")
-                print(f"{strengths}")
-            
-            # 显示缺点
-            if 'weaknesses' in review.content:
-                weaknesses = review.content['weaknesses']['value']
-                print(f"\n❌ 缺点:")
-                print(f"{weaknesses}")
-            
-            # 显示问题
-            if 'questions' in review.content:
-                questions = review.content['questions']['value']
-                print(f"\n❓ 问题:")
-                print(f"{questions}")
-            
-            # 显示其他评审字段
-            other_fields = ['soundness', 'presentation', 'contribution']
-            for field in other_fields:
-                if field in review.content:
-                    value = review.content[field]['value']
-                    print(f"\n📊 {field.title()}: {value}")
-            
-            print("=" * 80)
+            print(f"已分析note ID: {note.id}")
     
-    # 显示评论
-    if comments:
-        print(f"\n=== 评论和回复 ({len(comments)} 条) ===")
-        for i, comment in enumerate(comments):
-            print(f"\n💬 评论 {i+1}")
-            print(f"作者: {comment.signatures[0] if comment.signatures else 'Unknown'}")
-            
-            if 'comment' in comment.content:
-                comment_text = comment.content['comment']['value']
-                print(f"内容: {comment_text}")
-            
-            print("-" * 60)
+    print(f"所有notes结构已保存到 openreview_notes_structure.txt 文件")
+    
+    # 构建对话树
+    print(f"\n=== 构建对话树 ===")
+    conversation_tree = build_conversation_tree(notes)
+    
+    # 保存对话树
+    with open('openreview_conversation_tree.txt', 'w', encoding='utf-8') as f:
+        f.write("OpenReview 对话树结构\n")
+        f.write("=" * 50 + "\n\n")
+        print_conversation_tree(conversation_tree, f)
+    
+    print(f"对话树已保存到 openreview_conversation_tree.txt 文件")
+
 
 except Exception as e:
     print(f"无认证访问失败: {e}")

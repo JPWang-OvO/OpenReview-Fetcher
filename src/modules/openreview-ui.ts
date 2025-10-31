@@ -164,52 +164,89 @@ export class OpenReviewUIFactory {
       );
       ztoolkit.log('[DEBUG] 成功获取论文数据，评审数量:', rawPaper.reviews.length, '评论数量:', rawPaper.comments.length);
 
+      // 获取所有笔记以构建对话树
+      progressWin.changeLine({
+        progress: 50,
+        text: `正在获取对话树数据...`,
+      });
+      ztoolkit.log('[DEBUG] 开始获取所有笔记数据...');
+      const allNotes = await ErrorHandler.executeWithRetry(
+        () => client.getNotes(forumId),
+        OpenReviewSettingsManager.getCurrentSettings().maxRetries,
+        (attempt, error) => {
+          ztoolkit.log(`[DEBUG] 获取笔记重试第${attempt}次，错误:`, error);
+          progressWin.changeLine({
+            progress: 50 + (attempt * 5),
+            text: `重试获取对话树数据... (第${attempt}次)`,
+          });
+        }
+      );
+      ztoolkit.log('[DEBUG] 成功获取所有笔记数据，笔记数量:', allNotes.length);
+
       progressWin.changeLine({
         progress: 70,
-        text: `找到 ${rawPaper.reviews.length} 条评审和 ${rawPaper.comments.length} 条评论，正在处理数据...`,
+        text: `找到 ${rawPaper.reviews.length} 条评审和 ${rawPaper.comments.length} 条评论，正在构建对话树...`,
       });
       ztoolkit.log('[DEBUG] 更新进度窗口，开始处理数据');
 
-      // 使用数据处理器处理数据
+      // 使用数据处理器处理数据（包含对话树构建）
       ztoolkit.log('[DEBUG] 开始处理论文数据...');
-      const processedPaper = DataProcessor.processPaper(rawPaper);
-      ztoolkit.log('[DEBUG] 数据处理完成');
+      const processedPaper = DataProcessor.processPaper(rawPaper, allNotes);
+      ztoolkit.log('[DEBUG] 数据处理完成，对话树节点数量:', processedPaper.conversationTree?.allNodes.length || 0);
 
-      // 生成格式化的HTML报告
-      ztoolkit.log('[DEBUG] 开始生成HTML报告...');
-      const htmlReport = DataProcessor.generateHTMLReport(processedPaper);
-      ztoolkit.log('[DEBUG] HTML报告生成完成，长度:', htmlReport.length);
-      
       // 获取用户设置
       ztoolkit.log('[DEBUG] 获取用户设置...');
       const settings = OpenReviewSettingsManager.getCurrentSettings();
-      ztoolkit.log('[DEBUG] 用户设置:', { saveAsNote: settings.saveAsNote, saveAsAttachment: settings.saveAsAttachment });
+      ztoolkit.log('[DEBUG] 用户设置:', { 
+        saveAsNote: settings.saveAsNote, 
+        saveAsAttachment: settings.saveAsAttachment,
+        saveMode: settings.saveMode 
+      });
+
+      // 根据设置生成不同格式的内容
+      let noteContent: string;
+      let attachmentContent: string;
+      
+      if (settings.saveMode === 'interactive-html') {
+        ztoolkit.log('[DEBUG] 生成交互式HTML报告...');
+        noteContent = DataProcessor.generateInteractiveHTMLFragment(processedPaper);
+        attachmentContent = DataProcessor.generateInteractiveHTMLFragment(processedPaper);
+        ztoolkit.log('[DEBUG] 交互式HTML报告生成完成，长度:', noteContent.length);
+      } else {
+        ztoolkit.log('[DEBUG] 生成纯Markdown报告...');
+        noteContent = DataProcessor.generatePlainMarkdownAttachment(processedPaper);
+        attachmentContent = DataProcessor.generatePlainMarkdownAttachment(processedPaper);
+        ztoolkit.log('[DEBUG] 纯Markdown报告生成完成，长度:', noteContent.length);
+      }
       
       // 根据设置保存数据
       const savedItems: string[] = [];
       
       if (settings.saveAsNote) {
         ztoolkit.log('[DEBUG] 开始保存为笔记...');
-        await this.saveReviewsAsNote(item, htmlReport, processedPaper);
+        const isMarkdown = settings.saveMode !== 'interactive-html';
+        await this.saveReviewsAsNote(item, noteContent, processedPaper, isMarkdown);
         ztoolkit.log('[DEBUG] 笔记保存完成');
-        savedItems.push("笔记");
+        const modeText = settings.saveMode === 'interactive-html' ? '交互式HTML笔记' : 'Markdown笔记';
+        savedItems.push(modeText);
       }
       
       if (settings.saveAsAttachment) {
         ztoolkit.log('[DEBUG] 开始保存为附件...');
-        // 为附件生成纯文本格式
-        const textReport = DataProcessor.generateTextReport(processedPaper);
-        await this.saveReviewsAsAttachment(item, textReport, processedPaper);
+        await this.saveReviewsAsAttachment(item, attachmentContent, processedPaper);
         ztoolkit.log('[DEBUG] 附件保存完成');
-        savedItems.push("附件");
+        const modeText = settings.saveMode === 'interactive-html' ? 'HTML附件' : 'Markdown附件';
+        savedItems.push(modeText);
       }
       
-      // 如果用户没有选择任何保存方式，默认保存为笔记
+      // 如果用户没有选择任何保存方式，默认保存为笔记（使用设置的模式）
       if (savedItems.length === 0) {
         ztoolkit.log('[DEBUG] 没有选择保存方式，默认保存为笔记...');
-        await this.saveReviewsAsNote(item, htmlReport, processedPaper);
+        const isMarkdown = settings.saveMode !== 'interactive-html';
+        await this.saveReviewsAsNote(item, noteContent, processedPaper, isMarkdown);
         ztoolkit.log('[DEBUG] 默认笔记保存完成');
-        savedItems.push("笔记");
+        const modeText = settings.saveMode === 'interactive-html' ? '交互式HTML笔记' : 'Markdown笔记';
+        savedItems.push(modeText);
       }
 
       ztoolkit.log('[DEBUG] 更新进度窗口为完成状态');
@@ -224,7 +261,10 @@ export class OpenReviewUIFactory {
         ztoolkit.log('[DEBUG] 关闭进度窗口并显示成功消息');
         progressWin.close();
         const saveInfo = savedItems.length > 0 ? `，已保存为${savedItems.join("和")}` : "";
-        this.showMessage(`成功提取 ${processedPaper.reviews.length} 条评审和 ${processedPaper.comments.length} 条评论${saveInfo}`, "success");
+        const treeStats = processedPaper.conversationTree?.statistics;
+        const statsInfo = treeStats ? 
+          `，构建了包含 ${treeStats.totalNotes} 个节点的对话树` : "";
+        this.showMessage(`成功提取 ${processedPaper.reviews.length} 条评审和 ${processedPaper.comments.length} 条评论${statsInfo}${saveInfo}`, "success");
       }, 2000);
 
     } catch (error) {
@@ -294,45 +334,71 @@ export class OpenReviewUIFactory {
   /**
    * 将评论保存为笔记
    */
-  static async saveReviewsAsNote(item: Zotero.Item, htmlReport: string, paper: any) {
+  static async saveReviewsAsNote(item: Zotero.Item, content: string, paper: any, isMarkdown: boolean = false) {
     try {
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 开始保存笔记');
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 条目ID:', item.id);
-      ztoolkit.log('[DEBUG] saveReviewsAsNote - HTML报告长度:', htmlReport.length);
+      ztoolkit.log('[DEBUG] saveReviewsAsNote - 内容长度:', content.length);
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 论文ID:', paper.id);
+      ztoolkit.log('[DEBUG] saveReviewsAsNote - 是否为Markdown:', isMarkdown);
       
       // 验证输入参数
       if (!item || !item.id) {
         throw new Error('无效的Zotero条目');
       }
       
-      if (!htmlReport || htmlReport.trim().length === 0) {
-        throw new Error('HTML报告为空');
+      if (!content || content.trim().length === 0) {
+        throw new Error('内容为空');
       }
       
       // 创建新笔记
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 创建新笔记对象');
       const note = new Zotero.Item('note');
       
-      ztoolkit.log('[DEBUG] saveReviewsAsNote - 设置父条目ID');
-      note.parentID = item.id;
+      // 根据内容类型设置笔记内容
+      let htmlContent: string;
+      if (isMarkdown) {
+        // 将Markdown转换为HTML格式，以便在Zotero中正确显示
+        ztoolkit.log('[DEBUG] saveReviewsAsNote - 转换Markdown为HTML格式');
+        htmlContent = DataProcessor.convertMarkdownToHTML(content);
+        ztoolkit.log('[DEBUG] saveReviewsAsNote - HTML内容长度:', htmlContent.length);
+      } else {
+        // 直接使用HTML内容
+        ztoolkit.log('[DEBUG] saveReviewsAsNote - 使用HTML内容');
+        htmlContent = content;
+      }
       
-      // 直接使用生成的HTML报告
+      // 设置笔记内容
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 设置笔记内容');
-      note.setNote(htmlReport);
+      note.setNote(htmlContent);
+      
+      // 设置父条目ID - 使用正确的属性名
+      ztoolkit.log('[DEBUG] saveReviewsAsNote - 设置父条目ID');
+      note.parentItemID = item.id;
+      
+      // 设置库ID以支持群组库 - 这是关键的修复
+      // 根据Zotero开发者的建议，必须设置libraryID以避免在群组库中出现错误
+      ztoolkit.log('[DEBUG] saveReviewsAsNote - 设置库ID:', item.libraryID);
+      note.libraryID = item.libraryID;
       
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 开始保存笔记到数据库');
       await note.saveTx();
       
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 笔记保存成功，笔记ID:', note.id);
       
-      // 验证笔记是否真的被保存
+      // 验证笔记是否真的被保存并且有正确的父条目关系
       const savedNote = Zotero.Items.get(note.id);
       if (!savedNote) {
         throw new Error('笔记保存失败：无法从数据库中检索保存的笔记');
       }
       
-      ztoolkit.log('[DEBUG] saveReviewsAsNote - 笔记验证成功');
+      if (savedNote.parentItemID !== item.id) {
+        throw new Error(`笔记父条目关系设置失败：期望 ${item.id}，实际 ${savedNote.parentItemID}`);
+      }
+      
+      ztoolkit.log('[DEBUG] saveReviewsAsNote - 笔记验证成功，父条目ID:', savedNote.parentItemID);
+      
+      return note.id;
       
     } catch (error) {
       ztoolkit.log('[DEBUG] saveReviewsAsNote - 保存笔记时出错:', error);
@@ -364,8 +430,14 @@ export class OpenReviewUIFactory {
         throw new Error('无效的论文数据');
       }
       
-      const filename = `OpenReview_Reviews_${paper.id}.txt`;
+      // 获取用户设置以确定文件格式
+      const settings = OpenReviewSettingsManager.getCurrentSettings();
+      const isHTML = settings.saveMode === 'interactive-html';
+      const fileExtension = isHTML ? 'html' : 'md';
+      const filename = `OpenReview_Reviews_${paper.id}.${fileExtension}`;
+      
       ztoolkit.log('[DEBUG] saveReviewsAsAttachment - 文件名:', filename);
+      ztoolkit.log('[DEBUG] saveReviewsAsAttachment - 文件格式:', isHTML ? 'HTML' : 'Markdown');
       
       const tempFile = Zotero.getTempDirectory();
       tempFile.append(filename);
@@ -384,10 +456,11 @@ export class OpenReviewUIFactory {
       
       // 创建附件
       ztoolkit.log('[DEBUG] saveReviewsAsAttachment - 创建Zotero附件');
+      const attachmentTitle = `OpenReview Reviews - ${paper.title} (${isHTML ? 'Interactive HTML' : 'Markdown'})`;
       const attachment = await Zotero.Attachments.importFromFile({
         file: tempFile,
         parentItemID: item.id,
-        title: `OpenReview Reviews - ${paper.title}`,
+        title: attachmentTitle,
       });
       
       ztoolkit.log('[DEBUG] saveReviewsAsAttachment - 附件创建成功，附件ID:', attachment.id);
@@ -447,6 +520,12 @@ export class OpenReviewUIFactory {
       label: "OpenReview - 设置",
       commandListener: () => this.showSettings(),
     });
+    
+    ztoolkit.Menu.register("menuTools", {
+      tag: "menuitem", 
+      label: "OpenReview - 切换保存模式",
+      commandListener: () => this.toggleSaveMode(),
+    });
   }
 
   /**
@@ -454,6 +533,13 @@ export class OpenReviewUIFactory {
    */
   static showSettings() {
     OpenReviewSettingsManager.showSettingsDialog();
+  }
+
+  /**
+   * 切换保存模式
+   */
+  static toggleSaveMode() {
+    OpenReviewSettingsManager.toggleSaveMode();
   }
 
   /**

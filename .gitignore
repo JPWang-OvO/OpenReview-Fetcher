@@ -14,3 +14,8 @@ tsconfig.tsbuildinfo
 .scaffold
 build
 logs
+
+# OpenReview API test output files
+openreview_conversation_tree.txt
+openreview_notes_output.txt
+openreview_notes_structure.txt

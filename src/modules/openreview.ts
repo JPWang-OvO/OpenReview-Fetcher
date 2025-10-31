@@ -9,6 +9,7 @@ import { OpenReviewSettingsManager } from './openreview-settings';
 export interface OpenReviewNote {
   id: string;
   forum: string;
+  replyto?: string;  // 添加replyto属性
   signatures: string[];
   content: {
     [key: string]: {
@@ -77,10 +78,10 @@ export class OpenReviewClient {
     ]);
 
     const url = `${this.baseUrl}/notes?id=${noteId}`;
-    
+
     return ErrorHandler.executeWithRetry(async () => {
       const response = await this.makeRequest(url);
-      
+
       if (!response.notes || response.notes.length === 0) {
         throw new OpenReviewError({
           type: ErrorType.API_ERROR,
@@ -88,7 +89,7 @@ export class OpenReviewClient {
           userMessage: `未找到ID为 ${noteId} 的论文`
         });
       }
-      
+
       return response.notes[0];
     }, OpenReviewSettingsManager.getCurrentSettings().maxRetries);
   }
@@ -103,7 +104,7 @@ export class OpenReviewClient {
     ]);
 
     const url = `${this.baseUrl}/notes?forum=${forumId}`;
-    
+
     return ErrorHandler.executeWithRetry(async () => {
       const response = await this.makeRequest(url);
       return response.notes || [];
@@ -122,14 +123,14 @@ export class OpenReviewClient {
     try {
       // 获取主论文
       const mainNote = await this.getNote(forumId);
-      
+
       // 获取所有相关notes
       const allNotes = await this.getNotes(forumId);
-      
+
       // 分类处理notes
       const reviews: OpenReviewReview[] = [];
       const comments: OpenReviewComment[] = [];
-      
+
       for (const note of allNotes) {
         try {
           if (this.isReview(note)) {
@@ -142,7 +143,7 @@ export class OpenReviewClient {
           ztoolkit.log('Failed to parse note:', note.id, parseError);
         }
       }
-      
+
       return {
         id: mainNote.id,
         title: mainNote.content.title?.value as string || '',
@@ -151,7 +152,7 @@ export class OpenReviewClient {
         reviews,
         comments
       };
-      
+
     } catch (error) {
       const openReviewError = ErrorHandler.analyzeError(error);
       ErrorHandler.logError(openReviewError, 'getPaperWithReviews');
@@ -184,7 +185,7 @@ export class OpenReviewClient {
 
     // 提取评审的各个字段
     const fields = ['rating', 'confidence', 'summary', 'strengths', 'weaknesses', 'questions', 'soundness', 'presentation', 'contribution'];
-    
+
     for (const field of fields) {
       if (note.content[field]) {
         review[field] = note.content[field].value as string;
@@ -210,7 +211,7 @@ export class OpenReviewClient {
    */
   private async makeRequest(url: string): Promise<any> {
     const settings = OpenReviewSettingsManager.getCurrentSettings();
-    
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'User-Agent': 'Zotero-OpenReview-Plugin/1.0.0'
@@ -254,7 +255,7 @@ export class OpenReviewClient {
       if (error instanceof OpenReviewError) {
         throw error;
       }
-      
+
       // 处理超时错误
       if (error instanceof Error && error.message === 'Request timeout') {
         throw new OpenReviewError({
@@ -320,29 +321,29 @@ export class OpenReviewClient {
    */
   static formatReviewsAsText(paper: OpenReviewPaper): string {
     let text = `# ${paper.title}\n\n`;
-    
+
     if (paper.authors.length > 0) {
       text += `**作者:** ${paper.authors.join(', ')}\n\n`;
     }
-    
+
     if (paper.abstract) {
       text += `**摘要:** ${paper.abstract}\n\n`;
     }
-    
+
     if (paper.reviews.length > 0) {
       text += `## 评审 (${paper.reviews.length} 条)\n\n`;
-      
+
       paper.reviews.forEach((review, index) => {
         text += `### 评审 ${index + 1}\n`;
         text += `**评审者:** ${review.author}\n`;
-        
+
         if (review.rating) text += `**评分:** ${review.rating}\n`;
         if (review.confidence) text += `**置信度:** ${review.confidence}\n`;
         if (review.summary) text += `**摘要:** ${review.summary}\n\n`;
         if (review.strengths) text += `**优点:** ${review.strengths}\n\n`;
         if (review.weaknesses) text += `**缺点:** ${review.weaknesses}\n\n`;
         if (review.questions) text += `**问题:** ${review.questions}\n\n`;
-        
+
         // 其他字段
         const otherFields = ['soundness', 'presentation', 'contribution'];
         otherFields.forEach(field => {
@@ -350,14 +351,14 @@ export class OpenReviewClient {
             text += `**${field.charAt(0).toUpperCase() + field.slice(1)}:** ${review[field]}\n`;
           }
         });
-        
+
         text += '\n---\n\n';
       });
     }
-    
+
     if (paper.comments.length > 0) {
       text += `## 评论和回复 (${paper.comments.length} 条)\n\n`;
-      
+
       paper.comments.forEach((comment, index) => {
         text += `### 评论 ${index + 1}\n`;
         text += `**作者:** ${comment.author}\n`;
@@ -365,7 +366,7 @@ export class OpenReviewClient {
         text += '---\n\n';
       });
     }
-    
+
     return text;
   }
 }

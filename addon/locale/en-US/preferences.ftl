@@ -1,5 +1,5 @@
-pref-title = Addon Template Example
+pref-title = OpenReview Comments Fetcher Settings
 pref-enable =
-    .label = Enable
-pref-input = Input
+    .label = Enable Plugin
+pref-input = API Base URL
 pref-help = { $name } Build { $version } { $time }

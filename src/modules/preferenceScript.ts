@@ -21,16 +21,16 @@ export async function registerPrefsScripts(_window: Window) {
       ],
       rows: [
         {
-          title: "Orange",
-          detail: "It's juicy",
+          title: "保存为笔记",
+          detail: "将评论保存为Zotero笔记",
         },
         {
-          title: "Banana",
-          detail: "It's sweet",
+          title: "保存为附件",
+          detail: "将评论保存为文件附件",
         },
         {
-          title: "Apple",
-          detail: "I mean the fruit APPLE",
+          title: "包含统计信息",
+          detail: "在输出中包含评论统计数据",
         },
       ],
     };

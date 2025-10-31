@@ -1,5 +1,5 @@
-pref-title = 插件模板设置示例
+pref-title = OpenReview 评论获取器设置
 pref-enable =
-    .label = 开启
-pref-input = 输入
+    .label = 启用插件
+pref-input = API 基础URL
 pref-help = { $name } Build { $version } { $time }

@@ -1,9 +1,10 @@
 /**
  * Data Processor Module
- * 专门用于处理和格式化OpenReview数据
+ * 专门用于处理和格式化OpenReview数据，支持对话树结构
+ * 遵循Zotero笔记模板规范，使用基本HTML格式
  */
 
-import { OpenReviewPaper, OpenReviewReview, OpenReviewComment } from './openreview';
+import { OpenReviewPaper, OpenReviewReview, OpenReviewComment, OpenReviewNote } from './openreview';
 
 export interface ProcessedReview {
   id: string;
@@ -31,6 +32,32 @@ export interface ProcessedComment {
   rawData: OpenReviewComment;
 }
 
+// 对话树节点接口
+export interface ConversationTreeNode {
+  note: OpenReviewNote;
+  noteType: string;
+  level: number;
+  children: ConversationTreeNode[];
+  creationTime: Date;
+  signatures: string[];
+  contentSummary: string;
+  icon: string;
+}
+
+// 对话树接口
+export interface ConversationTree {
+  rootNode: ConversationTreeNode;
+  allNodes: ConversationTreeNode[];
+  statistics: {
+    totalNotes: number;
+    reviewCount: number;
+    commentCount: number;
+    authorResponseCount: number;
+    decisionCount: number;
+    metaReviewCount: number;
+  };
+}
+
 export interface ProcessedPaper {
   id: string;
   title: string;
@@ -38,6 +65,8 @@ export interface ProcessedPaper {
   abstract?: string;
   reviews: ProcessedReview[];
   comments: ProcessedComment[];
+  allNotes?: OpenReviewNote[];
+  conversationTree?: ConversationTree;
   statistics: {
     totalReviews: number;
     totalComments: number;
@@ -52,10 +81,16 @@ export class DataProcessor {
   /**
    * 处理原始论文数据
    */
-  static processPaper(rawPaper: OpenReviewPaper): ProcessedPaper {
+  static processPaper(rawPaper: OpenReviewPaper, allNotes?: OpenReviewNote[]): ProcessedPaper {
     const processedReviews = rawPaper.reviews.map(review => this.processReview(review));
     const processedComments = rawPaper.comments.map(comment => this.processComment(comment));
     const statistics = this.calculateStatistics(processedReviews);
+
+    // 构建对话树（如果提供了所有笔记）
+    let conversationTree: ConversationTree | undefined;
+    if (allNotes && allNotes.length > 0) {
+      conversationTree = this.buildConversationTree(allNotes);
+    }
 
     return {
       id: rawPaper.id,
@@ -64,6 +99,8 @@ export class DataProcessor {
       abstract: rawPaper.abstract,
       reviews: processedReviews,
       comments: processedComments,
+      allNotes: allNotes,
+      conversationTree,
       statistics,
       extractedAt: new Date()
     };
@@ -121,7 +158,7 @@ export class DataProcessor {
   static calculateStatistics(reviews: ProcessedReview[]) {
     const statistics = {
       totalReviews: reviews.length,
-      totalComments: 0, // 这里可以传入comments数量
+      totalComments: 0,
       ratingDistribution: {} as { [rating: string]: number },
       averageRating: undefined as number | undefined,
       averageConfidence: undefined as number | undefined
@@ -155,28 +192,287 @@ export class DataProcessor {
   }
 
   /**
+   * 构建对话树
+   */
+  static buildConversationTree(notes: OpenReviewNote[]): ConversationTree {
+    if (!notes || notes.length === 0) {
+      throw new Error('No notes provided');
+    }
+
+    // 构建回复映射：replyto -> [notes]
+    const replyMap = new Map<string, OpenReviewNote[]>();
+    let rootNotes: OpenReviewNote[] = [];
+
+    for (const note of notes) {
+      if (!note.replyto) {
+        // 根节点（主论文或顶级评审）
+        rootNotes.push(note);
+      } else {
+        // 回复节点
+        if (!replyMap.has(note.replyto)) {
+          replyMap.set(note.replyto, []);
+        }
+        replyMap.get(note.replyto)!.push(note);
+      }
+    }
+
+    // 找到主论文作为根节点
+    const rootNote = rootNotes.find(note => {
+      const noteType = this.getNoteType(note);
+      return noteType === 'Paper';
+    });
+
+    if (!rootNote) {
+      throw new Error('No root paper found');
+    }
+
+    // 创建根节点
+    const rootNode: ConversationTreeNode = {
+      note: rootNote,
+      noteType: this.getNoteType(rootNote),
+      level: 0,
+      children: [],
+      creationTime: new Date(rootNote.cdate || 0),
+      signatures: rootNote.signatures || [],
+      contentSummary: this.getContentSummary(rootNote),
+      icon: this.getNoteTypeIcon('Paper')
+    };
+
+    const allNodes: ConversationTreeNode[] = [rootNode];
+
+    // 递归构建子树
+    this.buildChildNodes(rootNode, replyMap, allNodes);
+
+    // 排序所有节点的子节点
+    this.sortTreeNodesRecursively(rootNode);
+
+    // 计算统计信息
+    const statistics = this.calculateTreeStatistics(allNodes);
+
+    return {
+      rootNode,
+      allNodes,
+      statistics
+    };
+  }
+
+  /**
+   * 递归构建子节点
+   */
+  private static buildChildNodes(
+    parentNode: ConversationTreeNode, 
+    replyMap: Map<string, OpenReviewNote[]>, 
+    allNodes: ConversationTreeNode[]
+  ): void {
+    const replies = replyMap.get(parentNode.note.id);
+    if (!replies || replies.length === 0) {
+      return;
+    }
+
+    for (const reply of replies) {
+      const noteType = this.getNoteType(reply);
+      const childNode: ConversationTreeNode = {
+        note: reply,
+        noteType,
+        level: parentNode.level + 1,
+        children: [],
+        creationTime: new Date(reply.cdate || 0),
+        signatures: reply.signatures || [],
+        contentSummary: this.getContentSummary(reply),
+        icon: this.getNoteTypeIcon(noteType)
+      };
+
+      parentNode.children.push(childNode);
+      allNodes.push(childNode);
+
+      // 递归处理子节点
+      this.buildChildNodes(childNode, replyMap, allNodes);
+    }
+  }
+
+  /**
+   * 识别note类型
+   */
+  static getNoteType(note: OpenReviewNote): string {
+    const content = note.content || {};
+    const invitation = note.invitation?.toLowerCase() || '';
+    const contentKeys = Object.keys(content);
+    
+    // 检查decision
+    if (content.decision || invitation.includes('decision')) {
+      return 'Decision';
+    }
+    
+    // 检查meta review
+    if (content.metareview || invitation.includes('meta') || invitation.includes('area')) {
+      return 'Meta Review';
+    }
+    
+    // 检查official review - 按照Python脚本逻辑
+    if (contentKeys.includes('review') || contentKeys.includes('rating')) {
+      return 'Official Review';
+    }
+    
+    // 检查author response - 按照Python脚本逻辑 (必须在Paper检查之前)
+    if (contentKeys.includes('title') && contentKeys.includes('comment')) {
+      const title = content.title?.value?.toString().toLowerCase() || '';
+      if (title.includes('author') || title.includes('response')) {
+        return 'Author Response';
+      }
+      return 'Comment';
+    }
+    
+    // 检查title字段判断是否为论文 (放在Author Response检查之后)
+    if (content.title && content.title.value) {
+      return 'Paper';
+    }
+    
+    // 检查comment
+    if (contentKeys.includes('comment')) {
+      return 'Comment';
+    }
+    
+    return 'Other';
+  }
+
+  /**
+   * 获取note类型对应的图标
+   */
+  static getNoteTypeIcon(noteType: string): string {
+    const iconMap: { [key: string]: string } = {
+      'Paper': '📄',
+      'Decision': '🏆',
+      'Meta Review': '📝',
+      'Official Review': '⭐',
+      'Author Response': '💬',
+      'Comment': '🔄',
+      'Reply': '↳'
+    };
+    return iconMap[noteType] || '📌';
+  }
+
+  /**
+   * 获取内容摘要
+   */
+  static getContentSummary(note: OpenReviewNote): string {
+    const content = note.content || {};
+    
+    // 对于论文，返回标题
+    if (content.title && content.title.value) {
+      return content.title.value.toString();
+    }
+    
+    // 对于其他类型，尝试获取主要内容
+    const possibleFields = ['review', 'comment', 'decision', 'metareview', 'summary'];
+    
+    for (const field of possibleFields) {
+      if (content[field] && content[field].value) {
+        const text = content[field].value.toString();
+        return text.length > 100 ? text.substring(0, 100) + '...' : text;
+      }
+    }
+    
+    return `Note ${note.id}`;
+  }
+
+  /**
+   * 递归排序树节点
+   */
+  static sortTreeNodesRecursively(node: ConversationTreeNode): void {
+    if (node.children.length === 0) return;
+    
+    // 第一层（对主论文的直接回复）使用特殊排序
+    if (node.level === 0) {
+      this.sortFirstLevelNodes(node.children);
+    } else {
+      // 其他层级按时间从前到后排序
+      node.children.sort((a, b) => {
+        return a.creationTime.getTime() - b.creationTime.getTime();
+      });
+    }
+    
+    // 递归排序子节点
+    node.children.forEach(child => this.sortTreeNodesRecursively(child));
+  }
+
+  /**
+   * 排序第一层节点（对主论文的直接回复）
+   */
+  private static sortFirstLevelNodes(nodes: ConversationTreeNode[]): void {
+    // 按照Python脚本的逻辑：Decision和Meta Review优先，然后所有其他类型按时间从新到旧排序
+    const decisionAndMeta = nodes.filter(node => 
+      node.noteType === 'Decision' || node.noteType === 'Meta Review'
+    );
+    const otherNodes = nodes.filter(node => 
+      node.noteType !== 'Decision' && node.noteType !== 'Meta Review'
+    );
+    
+    // Decision和Meta Review按时间从新到旧排序
+    decisionAndMeta.sort((a, b) => b.creationTime.getTime() - a.creationTime.getTime());
+    
+    // 其他所有类型（包括Official Review）按时间从新到旧排序
+    otherNodes.sort((a, b) => b.creationTime.getTime() - a.creationTime.getTime());
+    
+    // 清空原数组并重新填充
+    nodes.length = 0;
+    nodes.push(...decisionAndMeta, ...otherNodes);
+  }
+
+  /**
+   * 计算对话树统计信息
+   */
+  static calculateTreeStatistics(nodes: ConversationTreeNode[]) {
+    const statistics = {
+      totalNotes: nodes.length,
+      reviewCount: 0,
+      commentCount: 0,
+      authorResponseCount: 0,
+      decisionCount: 0,
+      metaReviewCount: 0
+    };
+    
+    nodes.forEach(node => {
+      switch (node.noteType) {
+        case 'Official Review':
+          statistics.reviewCount++;
+          break;
+        case 'Comment':
+        case 'Reply':
+          statistics.commentCount++;
+          break;
+        case 'Author Response':
+          statistics.authorResponseCount++;
+          break;
+        case 'Decision':
+          statistics.decisionCount++;
+          break;
+        case 'Meta Review':
+          statistics.metaReviewCount++;
+          break;
+      }
+    });
+    
+    return statistics;
+  }
+
+  /**
    * 解析评分字符串
    */
   static parseRating(ratingStr: any): number | undefined {
-    // 处理不同类型的输入
     if (ratingStr === null || ratingStr === undefined) {
       return undefined;
     }
-    
-    // 如果是数字类型，直接返回
+
     if (typeof ratingStr === 'number') {
       return ratingStr;
     }
-    
-    // 如果是数组，取第一个元素
+
     if (Array.isArray(ratingStr)) {
       if (ratingStr.length === 0) return undefined;
       return this.parseRating(ratingStr[0]);
     }
-    
-    // 转换为字符串并解析
+
     const str = String(ratingStr);
-    // OpenReview评分通常是 "6: Marginally above the acceptance threshold" 这样的格式
     const match = str.match(/^(\d+)/);
     return match ? parseInt(match[1]) : undefined;
   }
@@ -185,25 +481,20 @@ export class DataProcessor {
    * 解析置信度字符串
    */
   static parseConfidence(confidenceStr: any): number | undefined {
-    // 处理不同类型的输入
     if (confidenceStr === null || confidenceStr === undefined) {
       return undefined;
     }
-    
-    // 如果是数字类型，直接返回
+
     if (typeof confidenceStr === 'number') {
       return confidenceStr;
     }
-    
-    // 如果是数组，取第一个元素
+
     if (Array.isArray(confidenceStr)) {
       if (confidenceStr.length === 0) return undefined;
       return this.parseConfidence(confidenceStr[0]);
     }
-    
-    // 转换为字符串并解析
+
     const str = String(confidenceStr);
-    // 置信度通常是 "3: You are fairly confident in your assessment" 这样的格式
     const match = str.match(/^(\d+)/);
     return match ? parseInt(match[1]) : undefined;
   }
@@ -212,217 +503,308 @@ export class DataProcessor {
    * 匿名化作者名称
    */
   static anonymizeAuthor(author: string): string {
-    // 如果已经是匿名的，直接返回
     if (author.includes('Anonymous') || author.includes('Reviewer') || author.includes('AnonReviewer')) {
       return author;
     }
-
-    // 否则进行简单的匿名化处理
     return `Anonymous Reviewer`;
   }
 
   /**
-   * 生成HTML格式的报告
+   * 转义HTML特殊字符
    */
-  static generateHTMLReport(paper: ProcessedPaper): string {
-    let html = `
-    <div style="font-family: Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto;">
-      <h1 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
-        OpenReview 评论报告
-      </h1>
-      
-      <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-        <h2 style="color: #2c3e50; margin-top: 0;">论文信息</h2>
-        <p><strong>标题:</strong> ${paper.title}</p>
-        <p><strong>作者:</strong> ${paper.authors.join(', ')}</p>
-        <p><strong>提取时间:</strong> ${paper.extractedAt.toLocaleString()}</p>
-        ${paper.abstract ? `<p><strong>摘要:</strong> ${paper.abstract.substring(0, 300)}...</p>` : ''}
-      </div>
+  private static escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
 
-      <div style="background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-        <h2 style="color: #27ae60; margin-top: 0;">统计概览</h2>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-          <div>
-            <strong>评审数量:</strong> ${paper.statistics.totalReviews}
-          </div>
-          <div>
-            <strong>评论数量:</strong> ${paper.statistics.totalComments}
-          </div>
-          ${paper.statistics.averageRating ? `
-          <div>
-            <strong>平均评分:</strong> ${paper.statistics.averageRating.toFixed(2)}
-          </div>
-          ` : ''}
-          ${paper.statistics.averageConfidence ? `
-          <div>
-            <strong>平均置信度:</strong> ${paper.statistics.averageConfidence.toFixed(2)}
-          </div>
-          ` : ''}
-        </div>
-      </div>
-    `;
+  /**
+   * 安全地获取字符串值
+   */
+  private static safeString(value: any): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'object' && value.value !== undefined) {
+      return String(value.value);
+    }
+    return String(value);
+  }
 
-    // 添加评审详情
-    if (paper.reviews.length > 0) {
-      html += `<h2 style="color: #2c3e50; border-bottom: 1px solid #bdc3c7; padding-bottom: 5px;">评审详情</h2>`;
-      
-      paper.reviews.forEach((review, index) => {
-        html += `
-        <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin-bottom: 15px; background-color: #fff;">
-          <h3 style="color: #34495e; margin-top: 0;">评审 ${index + 1}</h3>
-          <p><strong>评审者:</strong> ${review.author}</p>
-          
-          ${review.rating ? `<p><strong>⭐ 评分:</strong> <span style="color: #e74c3c; font-weight: bold;">${review.rating}</span></p>` : ''}
-          ${review.confidence ? `<p><strong>🎯 置信度:</strong> ${review.confidence}</p>` : ''}
-          
-          ${review.summary ? `
-          <div style="margin: 10px 0;">
-            <strong>📝 摘要:</strong>
-            <div style="background-color: #f8f9fa; padding: 10px; border-left: 3px solid #3498db; margin-top: 5px;">
-              ${review.summary}
-            </div>
-          </div>
-          ` : ''}
-          
-          ${review.strengths ? `
-          <div style="margin: 10px 0;">
-            <strong style="color: #27ae60;">✅ 优点:</strong>
-            <div style="background-color: #e8f5e8; padding: 10px; border-left: 3px solid #27ae60; margin-top: 5px;">
-              ${review.strengths}
-            </div>
-          </div>
-          ` : ''}
-          
-          ${review.weaknesses ? `
-          <div style="margin: 10px 0;">
-            <strong style="color: #e74c3c;">❌ 缺点:</strong>
-            <div style="background-color: #fdf2f2; padding: 10px; border-left: 3px solid #e74c3c; margin-top: 5px;">
-              ${review.weaknesses}
-            </div>
-          </div>
-          ` : ''}
-          
-          ${review.questions ? `
-          <div style="margin: 10px 0;">
-            <strong style="color: #f39c12;">❓ 问题:</strong>
-            <div style="background-color: #fef9e7; padding: 10px; border-left: 3px solid #f39c12; margin-top: 5px;">
-              ${review.questions}
-            </div>
-          </div>
-          ` : ''}
-          
-          ${this.generateTechnicalQualityHTML(review.technicalQuality)}
-        </div>
-        `;
-      });
+  /**
+   * 生成符合Zotero规范的HTML片段
+   * 遵循Zotero笔记模板规范，使用基本HTML标签
+   */
+  static generateInteractiveHTMLFragment(paper: ProcessedPaper): string {
+    if (!paper.conversationTree) {
+      // 如果没有对话树，生成基本的Markdown报告并转换为HTML
+      const markdownReport = this.generateMarkdownReport(paper);
+      return this.convertMarkdownToZoteroHTML(markdownReport);
     }
 
-    // 添加评论详情
-    if (paper.comments.length > 0) {
-      html += `<h2 style="color: #2c3e50; border-bottom: 1px solid #bdc3c7; padding-bottom: 5px;">评论和回复</h2>`;
-      
-      paper.comments.forEach((comment, index) => {
-        html += `
-        <div style="border: 1px solid #ddd; border-radius: 5px; padding: 15px; margin-bottom: 10px; background-color: #f8f9fa;">
-          <h4 style="color: #34495e; margin-top: 0;">💬 评论 ${index + 1}</h4>
-          <p><strong>作者:</strong> ${comment.author}</p>
-          <div style="background-color: #fff; padding: 10px; border-left: 3px solid #95a5a6; margin-top: 5px;">
-            ${comment.content}
-          </div>
-        </div>
-        `;
-      });
+    const tree = paper.conversationTree;
+    let html = '';
+
+    // 论文标题
+    html += `<h1>${this.escapeHtml(paper.title)}</h1>`;
+
+    // 论文基本信息
+    html += `<h2>📋 论文信息</h2>`;
+    html += `<p><strong>作者:</strong> ${this.escapeHtml(paper.authors.join(', '))}</p>`;
+    html += `<p><strong>提取时间:</strong> ${paper.extractedAt.toLocaleString('zh-CN')}</p>`;
+    
+    if (paper.abstract) {
+      const abstractPreview = paper.abstract.length > 300 ? 
+        paper.abstract.substring(0, 300) + '...' : paper.abstract;
+      html += `<p><strong>摘要:</strong> ${this.escapeHtml(abstractPreview)}</p>`;
     }
 
-    html += `</div>`;
+    // 统计信息
+    html += `<h2>📊 统计信息</h2>`;
+    html += `<p><strong>总评论数:</strong> ${tree.statistics.totalNotes}</p>`;
+    html += `<p><strong>作者回复数:</strong> ${tree.statistics.authorResponseCount}</p>`;
+    html += `<p><strong>其他评论数:</strong> ${tree.statistics.commentCount}</p>`;
+    
+    if (paper.statistics.averageRating) {
+      html += `<p><strong>平均评分:</strong> ${paper.statistics.averageRating.toFixed(1)}</p>`;
+    }
+    if (paper.statistics.averageConfidence) {
+      html += `<p><strong>平均置信度:</strong> ${paper.statistics.averageConfidence.toFixed(1)}</p>`;
+    }
+
+    // 评审对话树
+    html += this.generateNodeHTML(tree.rootNode);
+
     return html;
   }
 
   /**
-   * 生成技术质量评估的HTML
+   * 递归生成节点HTML
    */
-  private static generateTechnicalQualityHTML(technicalQuality: any): string {
-    const qualities = [];
-    if (technicalQuality.soundness) qualities.push(`<strong>Soundness:</strong> ${technicalQuality.soundness}`);
-    if (technicalQuality.presentation) qualities.push(`<strong>Presentation:</strong> ${technicalQuality.presentation}`);
-    if (technicalQuality.contribution) qualities.push(`<strong>Contribution:</strong> ${technicalQuality.contribution}`);
-
-    if (qualities.length === 0) return '';
-
-    return `
-    <div style="margin: 10px 0;">
-      <strong>📊 技术质量评估:</strong>
-      <div style="background-color: #f0f0f0; padding: 10px; border-left: 3px solid #95a5a6; margin-top: 5px;">
-        ${qualities.join('<br>')}
-      </div>
-    </div>
-    `;
+  private static generateNodeHTML(node: ConversationTreeNode): string {
+    let html = '';
+    
+    // 根据层级确定缩进和前缀
+    const indent = '&nbsp;&nbsp;'.repeat(node.level);
+    const prefix = node.level > 0 ? '↳ ' : '';
+    
+    // 格式化时间
+    const timeStr = node.creationTime.toLocaleDateString('zh-CN') + ' ' + 
+                   node.creationTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    
+    // 格式化签名
+    const signatures = node.signatures.length > 0 ? 
+      ` by ${node.signatures.join(', ')}` : '';
+    
+    // 生成节点标题
+    if (node.noteType === 'Paper') {
+      html += `<p><strong>${node.icon} [${this.escapeHtml(node.noteType)}] ${this.escapeHtml(node.contentSummary)}</strong></p>`;
+      html += `<p><strong>创建时间:</strong> ${timeStr}</p>`;
+    } else {
+      const shortSummary = node.contentSummary.length > 100 ? 
+        node.contentSummary.substring(0, 100) + '...' : node.contentSummary;
+      
+      html += `<p>${indent}${prefix}<strong>${node.icon} [${this.escapeHtml(node.noteType)}]${this.escapeHtml(signatures)}</strong></p>`;
+      if (shortSummary) {
+        html += `<p>${indent}&nbsp;&nbsp;<strong>内容:</strong> ${this.escapeHtml(shortSummary)}</p>`;
+      }
+      html += `<p>${indent}&nbsp;&nbsp;<strong>创建时间:</strong> ${timeStr}</p>`;
+      
+      // 添加详细内容
+      const content = this.extractNoteContent(node.note);
+      if (content && Object.keys(content).length > 0) {
+        const formattedContent = this.formatContentAsHTML(content);
+        // 为内容添加缩进
+        const indentedContent = formattedContent.replace(/<p>/g, `<p>${indent}&nbsp;&nbsp;&nbsp;&nbsp;`);
+        html += indentedContent;
+      }
+    }
+    
+    html += '<br>';
+    
+    // 递归处理子节点
+    for (const child of node.children) {
+      html += this.generateNodeHTML(child);
+    }
+    
+    return html;
   }
 
   /**
-   * 生成纯文本格式的报告
+   * 提取笔记内容
    */
-  static generateTextReport(paper: ProcessedPaper): string {
-    let text = `OpenReview 评论报告\n`;
-    text += `${'='.repeat(50)}\n\n`;
+  private static extractNoteContent(note: OpenReviewNote): { [key: string]: string } {
+    const content = note.content || {};
+    const result: { [key: string]: string } = {};
     
-    text += `论文信息:\n`;
-    text += `标题: ${paper.title}\n`;
-    text += `作者: ${paper.authors.join(', ')}\n`;
-    text += `提取时间: ${paper.extractedAt.toLocaleString()}\n`;
-    if (paper.abstract) {
-      text += `摘要: ${paper.abstract.substring(0, 300)}...\n`;
+    // 定义要提取的字段及其显示名称
+    const fieldMap: { [key: string]: string } = {
+      'review': '评审内容',
+      'summary': '总结',
+      'strengths': '优点',
+      'weaknesses': '缺点',
+      'questions': '问题',
+      'rating': '评分',
+      'confidence': '置信度',
+      'decision': '决定',
+      'metareview': 'Meta Review',
+      'comment': '评论'
+    };
+    
+    for (const [field, displayName] of Object.entries(fieldMap)) {
+      if (content[field]) {
+        const value = this.safeString(content[field]);
+        if (value && value.trim().length > 0) {
+          result[displayName] = value.trim();
+        }
+      }
     }
-    text += `\n`;
+    
+    return result;
+  }
 
-    text += `统计概览:\n`;
-    text += `评审数量: ${paper.statistics.totalReviews}\n`;
-    text += `评论数量: ${paper.statistics.totalComments}\n`;
+  /**
+   * 将内容格式化为HTML
+   */
+  private static formatContentAsHTML(content: { [key: string]: string }): string {
+    let html = '';
+    
+    for (const [key, value] of Object.entries(content)) {
+      if (value && value.length > 0) {
+        html += `<p><strong>${this.escapeHtml(key)}:</strong></p>`;
+        
+        // 处理长文本，分段显示
+        const paragraphs = value.split(/\n\s*\n/);
+        for (const paragraph of paragraphs) {
+          if (paragraph.trim()) {
+            html += `<p>${this.escapeHtml(paragraph.trim())}</p>`;
+          }
+        }
+      }
+    }
+    
+    return html;
+  }
+
+  /**
+   * 生成Markdown格式的报告（用于fallback）
+   */
+  static generateMarkdownReport(paper: ProcessedPaper): string {
+    let markdown = '';
+
+    // 论文标题
+    markdown += `# ${paper.title}\n\n`;
+
+    // 论文信息
+    markdown += `## 📋 论文信息\n\n`;
+    markdown += `- **作者**: ${paper.authors.join(', ')}\n`;
+    markdown += `- **提取时间**: ${paper.extractedAt.toLocaleString('zh-CN')}\n`;
+    if (paper.abstract) {
+      const abstractPreview = paper.abstract.length > 300 ? 
+        paper.abstract.substring(0, 300) + '...' : paper.abstract;
+      markdown += `- **摘要**: ${abstractPreview}\n`;
+    }
+    markdown += '\n';
+
+    // 统计信息
+    markdown += `## 📊 统计信息\n\n`;
+    markdown += `- **总评审数**: ${paper.statistics.totalReviews}\n`;
     if (paper.statistics.averageRating) {
-      text += `平均评分: ${paper.statistics.averageRating.toFixed(2)}\n`;
+      markdown += `- **平均评分**: ${paper.statistics.averageRating.toFixed(1)}\n`;
     }
     if (paper.statistics.averageConfidence) {
-      text += `平均置信度: ${paper.statistics.averageConfidence.toFixed(2)}\n`;
+      markdown += `- **平均置信度**: ${paper.statistics.averageConfidence.toFixed(1)}\n`;
     }
-    text += `\n`;
+    markdown += '\n';
 
     // 评审详情
     if (paper.reviews.length > 0) {
-      text += `评审详情 (${paper.reviews.length} 条):\n`;
-      text += `${'-'.repeat(30)}\n\n`;
-      
+      markdown += `## 📝 评审详情\n\n`;
       paper.reviews.forEach((review, index) => {
-        text += `评审 ${index + 1}:\n`;
-        text += `评审者: ${review.author}\n`;
-        if (review.rating) text += `⭐ 评分: ${review.rating}\n`;
-        if (review.confidence) text += `🎯 置信度: ${review.confidence}\n`;
-        if (review.summary) text += `📝 摘要: ${review.summary}\n\n`;
-        if (review.strengths) text += `✅ 优点: ${review.strengths}\n\n`;
-        if (review.weaknesses) text += `❌ 缺点: ${review.weaknesses}\n\n`;
-        if (review.questions) text += `❓ 问题: ${review.questions}\n\n`;
-        
-        // 技术质量
-        if (review.technicalQuality?.soundness) text += `📊 Soundness: ${review.technicalQuality.soundness}\n`;
-        if (review.technicalQuality?.presentation) text += `📊 Presentation: ${review.technicalQuality.presentation}\n`;
-        if (review.technicalQuality?.contribution) text += `📊 Contribution: ${review.technicalQuality.contribution}\n`;
-        
-        text += `${'-'.repeat(50)}\n\n`;
+        markdown += `### 评审 ${index + 1}\n\n`;
+        markdown += `- **作者**: ${review.author}\n`;
+        if (review.rating) {
+          markdown += `- **评分**: ${review.rating}\n`;
+        }
+        if (review.confidence) {
+          markdown += `- **置信度**: ${review.confidence}\n`;
+        }
+        if (review.summary) {
+          markdown += `- **总结**: ${review.summary}\n`;
+        }
+        if (review.strengths) {
+          markdown += `- **优点**: ${review.strengths}\n`;
+        }
+        if (review.weaknesses) {
+          markdown += `- **缺点**: ${review.weaknesses}\n`;
+        }
+        markdown += '\n';
       });
     }
 
-    // 评论详情
-    if (paper.comments.length > 0) {
-      text += `评论和回复 (${paper.comments.length} 条):\n`;
-      text += `${'-'.repeat(30)}\n\n`;
+    return markdown;
+  }
+
+  /**
+   * 将Markdown转换为Zotero兼容的HTML
+   */
+  private static convertMarkdownToZoteroHTML(markdown: string): string {
+    let html = markdown;
+    
+    // 转换标题
+    html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+    
+    // 转换粗体
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // 转换列表项
+    html = html.replace(/^- (.*$)/gm, '<p>• $1</p>');
+    
+    // 转换段落（处理空行）
+    const lines = html.split('\n');
+    const processedLines: string[] = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.length === 0) {
+        continue; // 跳过空行
+      }
       
-      paper.comments.forEach((comment, index) => {
-        text += `💬 评论 ${index + 1}:\n`;
-        text += `作者: ${comment.author}\n`;
-        text += `内容: ${comment.content}\n`;
-        text += `${'-'.repeat(30)}\n\n`;
-      });
+      // 如果不是HTML标签，包装为段落
+      if (!line.match(/^<[h1-6]|^<p>|^<strong>/)) {
+        processedLines.push(`<p>${this.escapeHtml(line)}</p>`);
+      } else {
+        processedLines.push(line);
+      }
     }
+    
+    return processedLines.join('');
+  }
 
-    return text;
+  /**
+   * 生成纯Markdown附件内容
+   */
+  static generatePlainMarkdownAttachment(paper: ProcessedPaper): string {
+    return this.generateMarkdownReport(paper);
+  }
+
+  /**
+   * 将Markdown转换为HTML
+   */
+  static convertMarkdownToHTML(markdown: string): string {
+    if (!markdown) return '';
+    
+    // 简单的Markdown到HTML转换
+    return markdown
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // 粗体
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')              // 斜体
+      .replace(/`(.*?)`/g, '<code>$1</code>')            // 行内代码
+      .replace(/\n\n/g, '</p><p>')                       // 段落
+      .replace(/\n/g, '<br>')                            // 换行
+      .replace(/^/, '<p>')                               // 开始段落
+      .replace(/$/, '</p>');                             // 结束段落
   }
 }

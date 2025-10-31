@@ -3,6 +3,7 @@
 export interface OpenReviewSettings {
   saveAsNote: boolean;
   saveAsAttachment: boolean;
+  saveMode: 'interactive-html' | 'plain-markdown'; // 新增：保存模式选择
   includeStatistics: boolean;
   anonymizeAuthors: boolean;
   apiBaseUrl: string;
@@ -20,6 +21,7 @@ export class OpenReviewSettingsManager {
     return {
       saveAsNote: true,
       saveAsAttachment: false,
+      saveMode: 'interactive-html', // 默认使用交互式HTML模式
       includeStatistics: true,
       anonymizeAuthors: false,
       apiBaseUrl: 'https://api.openreview.net',
@@ -37,6 +39,7 @@ export class OpenReviewSettingsManager {
     return {
       saveAsNote: this.getPref('saveAsNote', defaults.saveAsNote),
       saveAsAttachment: this.getPref('saveAsAttachment', defaults.saveAsAttachment),
+      saveMode: this.getPref('saveMode', defaults.saveMode) as 'interactive-html' | 'plain-markdown',
       includeStatistics: this.getPref('includeStatistics', defaults.includeStatistics),
       anonymizeAuthors: this.getPref('anonymizeAuthors', defaults.anonymizeAuthors),
       apiBaseUrl: this.getPref('apiBaseUrl', defaults.apiBaseUrl),
@@ -108,6 +111,7 @@ export class OpenReviewSettingsManager {
 
 ✓ 保存为笔记: ${currentSettings.saveAsNote ? '是' : '否'}
 ✓ 保存为附件: ${currentSettings.saveAsAttachment ? '是' : '否'}  
+✓ 保存模式: ${currentSettings.saveMode === 'interactive-html' ? '交互式HTML树状界面' : '纯Markdown附件'}
 ✓ 包含统计信息: ${currentSettings.includeStatistics ? '是' : '否'}
 ✓ 匿名化作者: ${currentSettings.anonymizeAuthors ? '是' : '否'}
 ✓ API 基础URL: ${currentSettings.apiBaseUrl}
@@ -138,5 +142,16 @@ export class OpenReviewSettingsManager {
     this.saveSettings({ saveAsAttachment: !current.saveAsAttachment });
     const status = !current.saveAsAttachment ? '启用' : '禁用';
     ztoolkit.getGlobal("alert")(`已${status}保存为附件功能`);
+  }
+
+  /**
+   * 切换保存模式
+   */
+  static toggleSaveMode(): void {
+    const current = this.getCurrentSettings();
+    const newMode = current.saveMode === 'interactive-html' ? 'plain-markdown' : 'interactive-html';
+    this.saveSettings({ saveMode: newMode });
+    const modeText = newMode === 'interactive-html' ? '交互式HTML树状界面' : '纯Markdown附件';
+    ztoolkit.getGlobal("alert")(`已切换到${modeText}模式`);
   }
 }
