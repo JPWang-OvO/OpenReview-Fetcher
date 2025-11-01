@@ -38,6 +38,24 @@ A Zotero plugin that automatically fetches and organizes OpenReview comments, re
 3. The plugin will automatically detect OpenReview papers and fetch their reviews
 4. Reviews will be saved according to your preferences (HTML notes or Markdown attachments)
 
+### Batch Processing
+
+The plugin supports processing multiple items simultaneously:
+
+- **Single Item**: Select one item to process it individually with detailed progress updates
+- **Multiple Items**: Select multiple items to process them sequentially with batch progress tracking
+- **Progress Display**: Real-time progress updates showing current item, processing stage, and overall completion
+- **Error Handling**: Individual item failures won't stop the entire batch; detailed error reporting for failed items
+- **Result Summary**: Comprehensive summary showing success/failure counts, processing time, and extracted content statistics
+
+### Processing Features
+
+- **Sequential Processing**: Items are processed one by one to avoid API rate limits
+- **Automatic Retry**: Failed API requests are automatically retried with configurable limits
+- **Progress Tracking**: Multi-level progress display for both individual items and overall batch progress
+- **Error Recovery**: Robust error handling ensures partial batch failures don't affect successful items
+- **Performance Optimization**: Built-in delays between requests to respect API rate limits
+
 ### Toolbar Button
 
 You can also use the OpenReview toolbar button in the Zotero interface for quick access.
@@ -110,6 +128,7 @@ src/
 │   ├── openreview.ts     # OpenReview API client
 │   ├── openreview-ui.ts  # UI integration
 │   ├── data-processor.ts # Data processing utilities
+│   ├── batch-processor.ts # Batch processing engine
 │   └── error-handler.ts  # Error handling
 └── utils/                # Utility functions
 ```

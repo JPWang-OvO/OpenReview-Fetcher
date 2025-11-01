@@ -7,6 +7,7 @@ import { OpenReviewClient } from './openreview';
 import { DataProcessor } from './data-processor';
 import { OpenReviewSettingsManager } from './openreview-settings';
 import { ErrorHandler, OpenReviewError, ValidationRules } from './error-handler';
+import { BatchProcessor, BatchProgress, ProcessingStage, STAGE_DISPLAY_TEXT } from './batch-processor';
 import { getString } from '../utils/locale';
 
 export class OpenReviewUIFactory {
@@ -60,6 +61,7 @@ export class OpenReviewUIFactory {
    */
   static async handleExtractReviews() {
     let progressWin: any = null;
+    let batchProcessor: BatchProcessor | null = null;
 
     try {
       ztoolkit.log('[DEBUG] 开始提取OpenReview评论...');
@@ -70,18 +72,9 @@ export class OpenReviewUIFactory {
 
       if (selectedItems.length === 0) {
         ztoolkit.log('[DEBUG] 没有选中条目，显示警告');
-        this.showMessage("请先选择一个条目", "warning");
+        this.showMessage("请先选择一个或多个条目", "warning");
         return;
       }
-
-      if (selectedItems.length > 1) {
-        ztoolkit.log('[DEBUG] 选中了多个条目，显示警告');
-        this.showMessage("请只选择一个条目", "warning");
-        return;
-      }
-
-      const item = selectedItems[0];
-      ztoolkit.log('[DEBUG] 选中的条目ID:', item.id, '标题:', item.getField('title'));
 
       // 显示进度窗口
       ztoolkit.log('[DEBUG] 创建进度窗口...');
@@ -90,155 +83,71 @@ export class OpenReviewUIFactory {
         closeTime: -1,
       })
         .createLine({
-          text: "正在查找OpenReview链接...",
+          text: selectedItems.length === 1 ? "正在处理单个条目..." : `正在批量处理 ${selectedItems.length} 个条目...`,
           type: "default",
           progress: 0,
         })
         .show();
       ztoolkit.log('[DEBUG] 进度窗口已显示');
 
-      // 查找OpenReview URL
-      ztoolkit.log('[DEBUG] 开始查找OpenReview URL...');
-      const openReviewUrl = await this.findOpenReviewUrl(item);
-      ztoolkit.log('[DEBUG] 找到的OpenReview URL:', openReviewUrl);
+      // 创建批量处理器并设置进度回调
+      batchProcessor = new BatchProcessor((progress: BatchProgress) => {
+        if (progressWin) {
+          const { currentIndex, totalItems, currentTitle, currentStage, overallProgress, successCount, failureCount } = progress;
+          
+          let statusText = '';
+          if (totalItems === 1) {
+            // 单条目处理
+            statusText = `${STAGE_DISPLAY_TEXT[currentStage]} (${currentTitle})`;
+          } else {
+            // 批量处理
+            statusText = `[${currentIndex + 1}/${totalItems}] ${currentTitle} - ${STAGE_DISPLAY_TEXT[currentStage]}`;
+            // 显示累计统计信息
+            const totalProcessed = successCount + failureCount;
+            if (totalProcessed > 0) {
+              statusText += ` (已完成: ${totalProcessed}, 成功: ${successCount}, 失败: ${failureCount})`;
+            }
+          }
 
-      if (!openReviewUrl) {
-        ztoolkit.log('[DEBUG] 未找到OpenReview URL，关闭进度窗口并显示错误');
-        progressWin.close();
-        this.showMessage("未找到OpenReview链接。请确保条目包含OpenReview URL。", "error");
-        return;
-      }
-
-      // 验证URL格式
-      ztoolkit.log('[DEBUG] 开始验证URL格式...');
-      try {
-        ErrorHandler.validateInput(openReviewUrl, [
-          ValidationRules.openReviewUrl()
-        ]);
-        ztoolkit.log('[DEBUG] URL格式验证通过');
-      } catch (validationError) {
-        ztoolkit.log('[DEBUG] URL格式验证失败:', validationError);
-        progressWin.close();
-        if (validationError instanceof OpenReviewError) {
-          ErrorHandler.showUserError(validationError, "URL验证");
-        } else {
-          this.showMessage("OpenReview URL 格式不正确", "error");
-        }
-        return;
-      }
-
-      // 提取forum ID
-      ztoolkit.log('[DEBUG] 开始提取forum ID...');
-      const forumId = OpenReviewClient.extractForumId(openReviewUrl);
-      ztoolkit.log('[DEBUG] 提取到的forum ID:', forumId);
-
-      if (!forumId) {
-        ztoolkit.log('[DEBUG] 无法提取forum ID，关闭进度窗口并显示错误');
-        progressWin.close();
-        this.showMessage("无法从URL中提取论文ID", "error");
-        return;
-      }
-
-      progressWin.changeLine({
-        progress: 30,
-        text: `正在获取论文信息... (ID: ${forumId})`,
-      });
-      ztoolkit.log('[DEBUG] 更新进度窗口，开始获取论文信息');
-
-      // 创建客户端并获取数据
-      ztoolkit.log('[DEBUG] 创建OpenReview客户端...');
-      const client = new OpenReviewClient();
-
-      // 使用错误处理包装的方法获取论文数据
-      ztoolkit.log('[DEBUG] 开始获取论文数据...');
-      const rawPaper = await ErrorHandler.executeWithRetry(
-        () => client.getPaperWithReviews(forumId),
-        OpenReviewSettingsManager.getCurrentSettings().maxRetries,
-        (attempt, error) => {
-          ztoolkit.log(`[DEBUG] 重试第${attempt}次，错误:`, error);
           progressWin.changeLine({
-            progress: 30 + (attempt * 10),
-            text: `重试中... (第${attempt}次，错误: ${error.userMessage})`,
+            progress: Math.round(overallProgress),
+            text: statusText,
           });
         }
-      );
-      ztoolkit.log('[DEBUG] 成功获取论文数据，评审数量:', rawPaper.reviews.length, '评论数量:', rawPaper.comments.length);
-
-      // 获取所有笔记以构建对话树
-      progressWin.changeLine({
-        progress: 50,
-        text: `正在获取对话树数据...`,
-      });
-      ztoolkit.log('[DEBUG] 开始获取所有笔记数据...');
-      const allNotes = await ErrorHandler.executeWithRetry(
-        () => client.getNotes(forumId),
-        OpenReviewSettingsManager.getCurrentSettings().maxRetries,
-        (attempt, error) => {
-          ztoolkit.log(`[DEBUG] 获取笔记重试第${attempt}次，错误:`, error);
-          progressWin.changeLine({
-            progress: 50 + (attempt * 5),
-            text: `重试获取对话树数据... (第${attempt}次)`,
-          });
-        }
-      );
-      ztoolkit.log('[DEBUG] 成功获取所有笔记数据，笔记数量:', allNotes.length);
-
-      progressWin.changeLine({
-        progress: 70,
-        text: `找到 ${rawPaper.reviews.length} 条评审和 ${rawPaper.comments.length} 条评论，正在构建对话树...`,
-      });
-      ztoolkit.log('[DEBUG] 更新进度窗口，开始处理数据');
-
-      // 使用数据处理器处理数据（包含对话树构建）
-      ztoolkit.log('[DEBUG] 开始处理论文数据...');
-      const processedPaper = DataProcessor.processPaper(rawPaper, allNotes);
-      ztoolkit.log('[DEBUG] 数据处理完成，对话树节点数量:', processedPaper.conversationTree?.allNodes.length || 0);
-
-      // 获取用户设置
-      ztoolkit.log('[DEBUG] 获取用户设置...');
-      const settings = OpenReviewSettingsManager.getCurrentSettings();
-      ztoolkit.log('[DEBUG] 用户设置:', {
-        saveMode: settings.saveMode
       });
 
-      // 根据设置生成内容并保存
-      let content: string;
-      let savedItemText: string;
+      // 执行批量处理
+      ztoolkit.log('[DEBUG] 开始批量处理...');
+      const batchResult = await batchProcessor.processBatch(selectedItems);
+      ztoolkit.log('[DEBUG] 批量处理完成:', batchResult);
 
-      if (settings.saveMode === 'html-note') {
-        ztoolkit.log('[DEBUG] 生成HTML报告并保存为笔记...');
-        content = DataProcessor.generateInteractiveHTMLFragment(processedPaper);
-        ztoolkit.log('[DEBUG] HTML报告生成完成，长度:', content.length);
+      // 添加短暂延迟，让最终的n/n状态有足够显示时间
+      ztoolkit.log('[DEBUG] 等待最终状态显示...');
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-        await this.saveReviewsAsNote(item, content, processedPaper, false);
-        ztoolkit.log('[DEBUG] HTML笔记保存完成');
-        savedItemText = 'HTML笔记';
-      } else {
-        ztoolkit.log('[DEBUG] 生成纯Markdown报告并保存为附件...');
-        content = DataProcessor.generatePlainMarkdownAttachment(processedPaper);
-        ztoolkit.log('[DEBUG] 纯Markdown报告生成完成，长度:', content.length);
-
-        await this.saveReviewsAsAttachment(item, content, processedPaper);
-        ztoolkit.log('[DEBUG] Markdown附件保存完成');
-        savedItemText = 'Markdown附件';
-      }
-
+      // 更新进度窗口为完成状态
       ztoolkit.log('[DEBUG] 更新进度窗口为完成状态');
+      const finalStatusText = batchResult.totalItems === 1 
+        ? "处理完成！"
+        : `处理完成！(总计: ${batchResult.totalItems}, 成功: ${batchResult.successCount}, 失败: ${batchResult.failureCount})`;
+      
       progressWin.changeLine({
         progress: 100,
-        text: "OpenReview评论提取完成！",
+        text: finalStatusText,
       });
 
-      // 延迟关闭进度窗口
+      // 延迟关闭进度窗口并显示结果摘要
       ztoolkit.log('[DEBUG] 设置延迟关闭进度窗口');
       setTimeout(() => {
-        ztoolkit.log('[DEBUG] 关闭进度窗口并显示成功消息');
+        ztoolkit.log('[DEBUG] 关闭进度窗口并显示结果摘要');
         progressWin.close();
-        const saveInfo = `，已保存为${savedItemText}`;
-        const treeStats = processedPaper.conversationTree?.statistics;
-        const statsInfo = treeStats ?
-          `，构建了包含 ${treeStats.totalNotes} 个节点的对话树` : "";
-        this.showMessage(`成功提取 ${processedPaper.reviews.length} 条评审和 ${processedPaper.comments.length} 条评论${statsInfo}${saveInfo}`, "success");
+        
+        // 生成并显示结果摘要
+        const summary = batchProcessor!.generateResultSummary(batchResult);
+        const messageType = batchResult.failureCount === 0 ? "success" : 
+                           batchResult.successCount === 0 ? "error" : "warning";
+        
+        this.showMessage(summary, messageType);
       }, 2000);
 
     } catch (error) {
@@ -250,13 +159,17 @@ export class OpenReviewUIFactory {
         progressWin.close();
       }
 
+      if (batchProcessor) {
+        batchProcessor.stop();
+      }
+
       if (error instanceof OpenReviewError) {
         ztoolkit.log('[DEBUG] 显示OpenReviewError错误');
         ErrorHandler.showUserError(error, "提取OpenReview评论");
       } else {
         ztoolkit.log('[DEBUG] 显示通用错误:', error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.showMessage(`提取失败: ${errorMessage}`, "error");
+        this.showMessage(`批量处理失败: ${errorMessage}`, "error");
       }
     }
   }
