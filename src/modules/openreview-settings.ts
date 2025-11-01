@@ -36,7 +36,7 @@ export class OpenReviewSettingsManager {
       maxRetries: this.getPref('maxRetries', defaults.maxRetries),
       requestTimeout: this.getPref('requestTimeout', defaults.requestTimeout),
     };
-    
+
     ztoolkit.log('getCurrentSettings:', settings);
     return settings;
   }
@@ -67,12 +67,12 @@ export class OpenReviewSettingsManager {
     const prefKey = this.PREF_PREFIX + key;
 
     try {
-      ztoolkit.log(`getPref: key=${key}, prefKey=${prefKey}, defaultValue=${defaultValue}, type=${typeof defaultValue}`);
-      
+      //ztoolkit.log(`getPref: key=${key}, prefKey=${prefKey}, defaultValue=${defaultValue}, type=${typeof defaultValue}`);
+
       // 检查首选项是否存在
       const hasValue = Zotero.Prefs.get(prefKey) !== undefined;
-      ztoolkit.log(`getPref: ${prefKey} exists = ${hasValue}`);
-      
+      //ztoolkit.log(`getPref: ${prefKey} exists = ${hasValue}`);
+
       if (typeof defaultValue === 'boolean') {
         // 对于布尔值，如果不存在则返回默认值
         if (!hasValue) {
@@ -80,15 +80,15 @@ export class OpenReviewSettingsManager {
           return defaultValue;
         }
         const value = Zotero.Prefs.get(prefKey);
-        ztoolkit.log(`getPref boolean: ${prefKey} = ${value} (type: ${typeof value})`);
+        //ztoolkit.log(`getPref boolean: ${prefKey} = ${value} (type: ${typeof value})`);
         return value;
       } else if (typeof defaultValue === 'number') {
         const value = Zotero.Prefs.get(prefKey) ?? defaultValue;
-        ztoolkit.log(`getPref number: ${prefKey} = ${value}`);
+        //ztoolkit.log(`getPref number: ${prefKey} = ${value}`);
         return value;
       } else if (typeof defaultValue === 'string') {
         const value = Zotero.Prefs.get(prefKey) ?? defaultValue;
-        ztoolkit.log(`getPref string: ${prefKey} = ${value}`);
+        //ztoolkit.log(`getPref string: ${prefKey} = ${value}`);
         return value;
       }
       return defaultValue;
@@ -105,12 +105,7 @@ export class OpenReviewSettingsManager {
     const prefKey = this.PREF_PREFIX + key;
 
     try {
-      ztoolkit.log(`setPref: key=${key}, prefKey=${prefKey}, value=${value}, type=${typeof value}`);
       Zotero.Prefs.set(prefKey, value);
-      
-      // 验证设置是否成功
-      const savedValue = Zotero.Prefs.get(prefKey);
-      ztoolkit.log(`setPref verification: ${prefKey} saved as ${savedValue} (type: ${typeof savedValue})`);
     } catch (error) {
       ztoolkit.log(`Failed to set preference ${prefKey}:`, error);
     }

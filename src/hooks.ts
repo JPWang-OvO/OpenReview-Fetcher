@@ -69,24 +69,17 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
     text: `[50%] ${getString("openreview-startup-begin")}`,
   });
 
+  // Register UI components that require window context
+  UIExampleFactory.registerStyleSheet(win);
+  
+  UIExampleFactory.registerWindowMenuWithSeparator();
+
   // Register OpenReview UI components
   OpenReviewUIFactory.registerAll(win);
 
-  UIExampleFactory.registerRightClickMenuItem();
-
-  UIExampleFactory.registerRightClickMenuPopup();
-
-  UIExampleFactory.registerWindowMenuWithSeparator();
-
-  await UIExampleFactory.registerExtraColumn();
-
-  await UIExampleFactory.registerExtraColumnWithCustomCell();
-
-  await HelperExampleFactory.registerAlertFormatterAlterPatch();
-
   await PromptExampleFactory.registerNormalCommandExample();
 
-  await PromptExampleFactory.registerAnonymousCommandExample();
+  await PromptExampleFactory.registerAnonymousCommandExample(win);
 
   await PromptExampleFactory.registerConditionalCommandExample();
 
@@ -151,9 +144,6 @@ function onShortcuts(type: string) {
       break;
     case "smaller":
       KeyExampleFactory.exampleShortcutSmallerCallback();
-      break;
-    case "confliction":
-      KeyExampleFactory.exampleShortcutConflictingCallback();
       break;
     default:
       break;

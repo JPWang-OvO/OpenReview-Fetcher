@@ -144,7 +144,7 @@ export class UIExampleFactory {
     // menu->File menuitem
     ztoolkit.Menu.register("menuFile", {
       tag: "menuitem",
-      label: getString("menuitem-filemenulabel"),
+      label: getString("openreview-menuitem-label"),
       oncommand: "alert('Hello World! File Menuitem.')",
     });
   }
