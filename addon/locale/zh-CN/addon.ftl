@@ -1,6 +1,7 @@
-startup-begin = 插件加载中
-startup-finish = 插件已就绪
-menuitem-filemenulabel = 插件模板: 文件菜单
+openreview-startup-begin = OpenReview Fetcher 正在加载
+openreview-startup-finish = OpenReview Fetcher 已就绪
+openreview-menuitem-label = 获取OpenReview评论
+openreview-menupopup-label = OpenReview Fetcher
 prefs-title = OpenReview Fetcher
 prefs-table-title = 标题
 prefs-table-detail = 详情

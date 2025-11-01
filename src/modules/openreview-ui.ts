@@ -406,7 +406,7 @@ export class OpenReviewUIFactory {
 
       // 由于只有 markdown-attachment 模式会调用此方法，直接使用 Markdown 格式
       const fileExtension = 'md';
-      const filename = `OpenReview_Reviews_${paper.id}.${fileExtension}`;
+      const filename = `OpenReview_Rebuttals_${paper.id}.${fileExtension}`;
 
       ztoolkit.log('[DEBUG] saveReviewsAsAttachment - 文件名:', filename);
       ztoolkit.log('[DEBUG] saveReviewsAsAttachment - 文件格式: Markdown');

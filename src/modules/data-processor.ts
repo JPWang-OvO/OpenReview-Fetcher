@@ -86,7 +86,7 @@ export class DataProcessor {
     const processedComments = rawPaper.comments.map(comment => this.processComment(comment));
     const statistics = this.calculateStatistics(processedReviews);
 
-    // 构建对话树（如果提供了所有笔记）
+    // 构建对话树（如果提供了所有note）
     let conversationTree: ConversationTree | undefined;
     if (allNotes && allNotes.length > 0) {
       conversationTree = this.buildConversationTree(allNotes);
@@ -524,6 +524,19 @@ export class DataProcessor {
   }
 
   /**
+   * 规范化文本，处理不必要的换行符
+   */
+  private static normalizeText(text: string): string {
+    if (!text) return '';
+    
+    // 将单个换行符替换为空格，保留双换行符作为段落分隔
+    return text
+      .replace(/\n(?!\s*\n)/g, ' ')  // 单个换行符替换为空格
+      .replace(/\s+/g, ' ')          // 多个连续空格替换为单个空格
+      .trim();                       // 去除首尾空格
+  }
+
+  /**
    * 生成符合Zotero规范的HTML片段
    * 遵循Zotero笔记模板规范，使用基本HTML标签
    */
@@ -543,6 +556,14 @@ export class DataProcessor {
     // 论文基本信息
     html += `<h2>📋 论文信息</h2>`;
     html += `<p><strong>作者:</strong> ${this.escapeHtml(paper.authors.join(', '))}</p>`;
+    
+    // 添加Paper的创建时间
+    if (tree.rootNode && tree.rootNode.noteType === 'Paper') {
+      const paperTimeStr = tree.rootNode.creationTime.toLocaleDateString('zh-CN') + ' ' +
+        tree.rootNode.creationTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      html += `<p><strong>创建时间:</strong> ${paperTimeStr}</p>`;
+    }
+    
     html += `<p><strong>提取时间:</strong> ${paper.extractedAt.toLocaleString('zh-CN')}</p>`;
 
     if (paper.abstract) {
@@ -562,8 +583,12 @@ export class DataProcessor {
       html += `<p><strong>平均置信度:</strong> ${paper.statistics.averageConfidence.toFixed(1)}</p>`;
     }
 
-    // review 对话树
-    html += this.generateNodeHTML(tree.rootNode);
+    // review 对话树 - 跳过Paper根节点，直接处理其子节点
+    if (tree.rootNode && tree.rootNode.children) {
+      for (const child of tree.rootNode.children) {
+        html += this.generateNodeHTML(child);
+      }
+    }
 
     return html;
   }
@@ -574,9 +599,10 @@ export class DataProcessor {
   private static generateNodeHTML(node: ConversationTreeNode): string {
     let html = '';
 
-    // 根据层级确定缩进和前缀
-    const indent = '&nbsp;&nbsp;'.repeat(node.level);
-    const prefix = node.level > 0 ? '↳ ' : '';
+    // 根据层级确定缩进和前缀 - 由于跳过了Paper根节点，所有级别减1
+    const adjustedLevel = Math.max(0, node.level - 1);
+    const indent = '&nbsp;&nbsp;'.repeat(adjustedLevel);
+    const prefix = adjustedLevel > 0 ? '↳ ' : '';
 
     // 格式化时间
     const timeStr = node.creationTime.toLocaleDateString('zh-CN') + ' ' +
@@ -677,9 +703,139 @@ export class DataProcessor {
   }
 
   /**
-   * 生成Markdown格式的报告（用于fallback）
+   * 生成Markdown格式的报告
    */
   static generateMarkdownReport(paper: ProcessedPaper): string {
+    if (!paper.conversationTree) {
+      // 如果没有对话树，生成基本的评审报告
+      return this.generateBasicMarkdownReport(paper);
+    }
+
+    const tree = paper.conversationTree;
+    let markdown = '';
+
+    // 论文标题
+    markdown += `# ${paper.title}\n\n`;
+
+    // 论文基本信息
+    markdown += `## 📋 论文信息\n\n`;
+    markdown += `- **作者**: ${paper.authors.join(', ')}\n`;
+    
+    // 添加Paper的创建时间
+    if (tree.rootNode && tree.rootNode.noteType === 'Paper') {
+      const paperTimeStr = tree.rootNode.creationTime.toLocaleDateString('zh-CN') + ' ' +
+        tree.rootNode.creationTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      markdown += `- **创建时间**: ${paperTimeStr}\n`;
+    }
+    
+    markdown += `- **提取时间**: ${paper.extractedAt.toLocaleString('zh-CN')}\n`;
+
+    if (paper.abstract) {
+      markdown += `- **摘要**: ${this.normalizeText(paper.abstract)}\n`;
+    }
+    markdown += '\n';
+
+    // 统计信息
+    markdown += `## 📊 统计信息\n\n`;
+    markdown += `- **总评论数**: ${tree.statistics.totalNotes}\n`;
+    markdown += `- **作者回复数**: ${tree.statistics.authorResponseCount}\n`;
+    markdown += `- **其他评论数**: ${tree.statistics.commentCount}\n`;
+
+    if (paper.statistics.averageRating) {
+      markdown += `- **平均评分**: ${paper.statistics.averageRating.toFixed(1)}\n`;
+    }
+    if (paper.statistics.averageConfidence) {
+      markdown += `- **平均置信度**: ${paper.statistics.averageConfidence.toFixed(1)}\n`;
+    }
+    markdown += '\n';
+
+    // 对话树 - 跳过Paper根节点，直接处理其子节点
+    if (tree.rootNode && tree.rootNode.children) {
+      for (const child of tree.rootNode.children) {
+        markdown += this.generateNodeMarkdown(child);
+      }
+    }
+
+    return markdown;
+  }
+
+  /**
+   * 递归生成节点Markdown
+   */
+  private static generateNodeMarkdown(node: ConversationTreeNode): string {
+    let markdown = '';
+
+    // 格式化时间
+    const timeStr = node.creationTime.toLocaleDateString('zh-CN') + ' ' +
+      node.creationTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
+    // 格式化签名
+    const signatures = node.signatures.length > 0 ?
+      ` by ${node.signatures.join(', ')}` : '';
+
+    // 根据层级确定标题级别 - 由于跳过了Paper根节点，所有级别提升一级
+    // level 1 (Review等) → H2, level 2 → H3, 以此类推
+    const headerLevel = Math.min(node.level + 1, 6);
+    const headerPrefix = '#'.repeat(headerLevel);
+
+    // 生成节点标题
+    if (node.noteType === 'Paper') {
+      markdown += `${headerPrefix} ${node.icon} [${node.noteType}] ${node.contentSummary}\n\n`;
+      markdown += `**创建时间:** ${timeStr}\n\n`;
+    } else {
+      const shortSummary = node.contentSummary.length > 100 ?
+        node.contentSummary.substring(0, 100) + '...' : node.contentSummary;
+
+      markdown += `${headerPrefix} ${node.icon} [${node.noteType}]${signatures}\n\n`;
+      
+      if (shortSummary && shortSummary !== '-') {
+        markdown += `**内容:** ${shortSummary}\n\n`;
+      }
+      markdown += `**创建时间:** ${timeStr}\n\n`;
+
+      // 添加详细内容
+      const content = this.extractNoteContent(node.note);
+      if (content && Object.keys(content).length > 0) {
+        const formattedContent = this.formatContentAsMarkdown(content);
+        markdown += formattedContent;
+      }
+    }
+
+    // 递归处理子节点
+    for (const child of node.children) {
+      markdown += this.generateNodeMarkdown(child);
+    }
+
+    return markdown;
+  }
+
+  /**
+   * 将内容格式化为Markdown
+   */
+  private static formatContentAsMarkdown(content: { [key: string]: string }): string {
+    let markdown = '';
+
+    for (const [key, value] of Object.entries(content)) {
+      if (value && value.length > 0) {
+        markdown += `**${key}:**\n\n`;
+
+        // 处理长文本，分段显示
+        const paragraphs = value.split(/\n\s*\n/);
+        for (const paragraph of paragraphs) {
+          if (paragraph.trim()) {
+            markdown += `${paragraph.trim()}\n\n`;
+          }
+        }
+      }
+    }
+
+    return markdown;
+  }
+
+  /**
+   * 生成基本Markdown格式的报告（用于fallback）
+   */
+  private static generateBasicMarkdownReport(paper: ProcessedPaper): string {
     let markdown = '';
 
     // 论文标题
@@ -692,7 +848,7 @@ export class DataProcessor {
     if (paper.abstract) {
       const abstractPreview = paper.abstract.length > 300 ?
         paper.abstract.substring(0, 300) + '...' : paper.abstract;
-      markdown += `- **摘要**: ${abstractPreview}\n`;
+      markdown += `- **摘要**: ${this.normalizeText(abstractPreview)}\n`;
     }
     markdown += '\n';
 

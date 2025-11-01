@@ -12,13 +12,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-username/zotero-openreview-plugin.git"
+    "url": "git+https://github.com/JPWang-OvO/OpenReview-Comments-Fetcher.git"
   },
-  "author": "Your Name",
+  "author": "OpenReview Team",
   "bugs": {
-    "url": "https://github.com/your-username/zotero-openreview-plugin/issues"
+    "url": "https://github.com/JPWang-OvO/OpenReview-Comments-Fetcher/issues"
   },
-  "homepage": "https://github.com/your-username/zotero-openreview-plugin#readme",
+  "homepage": "https://github.com/JPWang-OvO/OpenReview-Comments-Fetcher#readme",
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "zotero-plugin serve",
