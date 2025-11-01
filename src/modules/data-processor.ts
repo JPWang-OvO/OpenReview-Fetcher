@@ -112,7 +112,7 @@ export class DataProcessor {
   static processReview(rawReview: OpenReviewReview): ProcessedReview {
     const processed: ProcessedReview = {
       id: rawReview.id,
-      author: this.anonymizeAuthor(rawReview.author),
+      author: rawReview.author,
       summary: rawReview.summary,
       strengths: rawReview.strengths,
       weaknesses: rawReview.weaknesses,
@@ -146,7 +146,7 @@ export class DataProcessor {
   static processComment(rawComment: OpenReviewComment): ProcessedComment {
     return {
       id: rawComment.id,
-      author: this.anonymizeAuthor(rawComment.author),
+      author: rawComment.author,
       content: rawComment.content,
       rawData: rawComment
     };
@@ -260,8 +260,8 @@ export class DataProcessor {
    * 递归构建子节点
    */
   private static buildChildNodes(
-    parentNode: ConversationTreeNode, 
-    replyMap: Map<string, OpenReviewNote[]>, 
+    parentNode: ConversationTreeNode,
+    replyMap: Map<string, OpenReviewNote[]>,
     allNodes: ConversationTreeNode[]
   ): void {
     const replies = replyMap.get(parentNode.note.id);
@@ -297,22 +297,22 @@ export class DataProcessor {
     const content = note.content || {};
     const invitation = note.invitation?.toLowerCase() || '';
     const contentKeys = Object.keys(content);
-    
+
     // 检查decision
     if (content.decision || invitation.includes('decision')) {
       return 'Decision';
     }
-    
+
     // 检查meta review
     if (content.metareview || invitation.includes('meta') || invitation.includes('area')) {
       return 'Meta Review';
     }
-    
+
     // 检查official review - 按照Python脚本逻辑
     if (contentKeys.includes('review') || contentKeys.includes('rating')) {
       return 'Official Review';
     }
-    
+
     // 检查author response - 按照Python脚本逻辑 (必须在Paper检查之前)
     if (contentKeys.includes('title') && contentKeys.includes('comment')) {
       const title = content.title?.value?.toString().toLowerCase() || '';
@@ -321,17 +321,17 @@ export class DataProcessor {
       }
       return 'Comment';
     }
-    
+
     // 检查title字段判断是否为论文 (放在Author Response检查之后)
     if (content.title && content.title.value) {
       return 'Paper';
     }
-    
+
     // 检查comment
     if (contentKeys.includes('comment')) {
       return 'Comment';
     }
-    
+
     return 'Other';
   }
 
@@ -356,22 +356,23 @@ export class DataProcessor {
    */
   static getContentSummary(note: OpenReviewNote): string {
     const content = note.content || {};
-    
+
     // 对于论文，返回标题
     if (content.title && content.title.value) {
       return content.title.value.toString();
     }
-    
+    return '-';
     // 对于其他类型，尝试获取主要内容
-    const possibleFields = ['review', 'comment', 'decision', 'metareview', 'summary'];
-    
+    /*
+    const possibleFields = ['comment', 'review', 'decision', 'metareview', 'summary'];
+
     for (const field of possibleFields) {
       if (content[field] && content[field].value) {
         const text = content[field].value.toString();
         return text.length > 100 ? text.substring(0, 100) + '...' : text;
       }
     }
-    
+    */
     return `Note ${note.id}`;
   }
 
@@ -380,7 +381,7 @@ export class DataProcessor {
    */
   static sortTreeNodesRecursively(node: ConversationTreeNode): void {
     if (node.children.length === 0) return;
-    
+
     // 第一层（对主论文的直接回复）使用特殊排序
     if (node.level === 0) {
       this.sortFirstLevelNodes(node.children);
@@ -390,7 +391,7 @@ export class DataProcessor {
         return a.creationTime.getTime() - b.creationTime.getTime();
       });
     }
-    
+
     // 递归排序子节点
     node.children.forEach(child => this.sortTreeNodesRecursively(child));
   }
@@ -399,20 +400,20 @@ export class DataProcessor {
    * 排序第一层节点（对主论文的直接回复）
    */
   private static sortFirstLevelNodes(nodes: ConversationTreeNode[]): void {
-    // 按照Python脚本的逻辑：Decision和Meta Review优先，然后所有其他类型按时间从新到旧排序
-    const decisionAndMeta = nodes.filter(node => 
+    // Decision和Meta Review优先，然后所有其他类型按时间从新到旧排序
+    const decisionAndMeta = nodes.filter(node =>
       node.noteType === 'Decision' || node.noteType === 'Meta Review'
     );
-    const otherNodes = nodes.filter(node => 
+    const otherNodes = nodes.filter(node =>
       node.noteType !== 'Decision' && node.noteType !== 'Meta Review'
     );
-    
+
     // Decision和Meta Review按时间从新到旧排序
     decisionAndMeta.sort((a, b) => b.creationTime.getTime() - a.creationTime.getTime());
-    
+
     // 其他所有类型（包括Official Review）按时间从新到旧排序
     otherNodes.sort((a, b) => b.creationTime.getTime() - a.creationTime.getTime());
-    
+
     // 清空原数组并重新填充
     nodes.length = 0;
     nodes.push(...decisionAndMeta, ...otherNodes);
@@ -430,7 +431,7 @@ export class DataProcessor {
       decisionCount: 0,
       metaReviewCount: 0
     };
-    
+
     nodes.forEach(node => {
       switch (node.noteType) {
         case 'Official Review':
@@ -451,7 +452,7 @@ export class DataProcessor {
           break;
       }
     });
-    
+
     return statistics;
   }
 
@@ -500,16 +501,6 @@ export class DataProcessor {
   }
 
   /**
-   * 匿名化作者名称
-   */
-  static anonymizeAuthor(author: string): string {
-    if (author.includes('Anonymous') || author.includes('Reviewer') || author.includes('AnonReviewer')) {
-      return author;
-    }
-    return `Anonymous Reviewer`;
-  }
-
-  /**
    * 转义HTML特殊字符
    */
   private static escapeHtml(text: string): string {
@@ -553,11 +544,9 @@ export class DataProcessor {
     html += `<h2>📋 论文信息</h2>`;
     html += `<p><strong>作者:</strong> ${this.escapeHtml(paper.authors.join(', '))}</p>`;
     html += `<p><strong>提取时间:</strong> ${paper.extractedAt.toLocaleString('zh-CN')}</p>`;
-    
+
     if (paper.abstract) {
-      const abstractPreview = paper.abstract.length > 300 ? 
-        paper.abstract.substring(0, 300) + '...' : paper.abstract;
-      html += `<p><strong>摘要:</strong> ${this.escapeHtml(abstractPreview)}</p>`;
+      html += `<p><strong>摘要:</strong> ${this.escapeHtml(paper.abstract)}</p>`;
     }
 
     // 统计信息
@@ -565,7 +554,7 @@ export class DataProcessor {
     html += `<p><strong>总评论数:</strong> ${tree.statistics.totalNotes}</p>`;
     html += `<p><strong>作者回复数:</strong> ${tree.statistics.authorResponseCount}</p>`;
     html += `<p><strong>其他评论数:</strong> ${tree.statistics.commentCount}</p>`;
-    
+
     if (paper.statistics.averageRating) {
       html += `<p><strong>平均评分:</strong> ${paper.statistics.averageRating.toFixed(1)}</p>`;
     }
@@ -573,7 +562,7 @@ export class DataProcessor {
       html += `<p><strong>平均置信度:</strong> ${paper.statistics.averageConfidence.toFixed(1)}</p>`;
     }
 
-    // 评审对话树
+    // review 对话树
     html += this.generateNodeHTML(tree.rootNode);
 
     return html;
@@ -584,33 +573,33 @@ export class DataProcessor {
    */
   private static generateNodeHTML(node: ConversationTreeNode): string {
     let html = '';
-    
+
     // 根据层级确定缩进和前缀
     const indent = '&nbsp;&nbsp;'.repeat(node.level);
     const prefix = node.level > 0 ? '↳ ' : '';
-    
+
     // 格式化时间
-    const timeStr = node.creationTime.toLocaleDateString('zh-CN') + ' ' + 
-                   node.creationTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    
+    const timeStr = node.creationTime.toLocaleDateString('zh-CN') + ' ' +
+      node.creationTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+
     // 格式化签名
-    const signatures = node.signatures.length > 0 ? 
+    const signatures = node.signatures.length > 0 ?
       ` by ${node.signatures.join(', ')}` : '';
-    
+
     // 生成节点标题
     if (node.noteType === 'Paper') {
       html += `<p><strong>${node.icon} [${this.escapeHtml(node.noteType)}] ${this.escapeHtml(node.contentSummary)}</strong></p>`;
       html += `<p><strong>创建时间:</strong> ${timeStr}</p>`;
     } else {
-      const shortSummary = node.contentSummary.length > 100 ? 
+      const shortSummary = node.contentSummary.length > 100 ?
         node.contentSummary.substring(0, 100) + '...' : node.contentSummary;
-      
+
       html += `<p>${indent}${prefix}<strong>${node.icon} [${this.escapeHtml(node.noteType)}]${this.escapeHtml(signatures)}</strong></p>`;
       if (shortSummary) {
         html += `<p>${indent}&nbsp;&nbsp;<strong>内容:</strong> ${this.escapeHtml(shortSummary)}</p>`;
       }
       html += `<p>${indent}&nbsp;&nbsp;<strong>创建时间:</strong> ${timeStr}</p>`;
-      
+
       // 添加详细内容
       const content = this.extractNoteContent(node.note);
       if (content && Object.keys(content).length > 0) {
@@ -620,14 +609,14 @@ export class DataProcessor {
         html += indentedContent;
       }
     }
-    
+
     html += '<br>';
-    
+
     // 递归处理子节点
     for (const child of node.children) {
       html += this.generateNodeHTML(child);
     }
-    
+
     return html;
   }
 
@@ -637,7 +626,7 @@ export class DataProcessor {
   private static extractNoteContent(note: OpenReviewNote): { [key: string]: string } {
     const content = note.content || {};
     const result: { [key: string]: string } = {};
-    
+
     // 定义要提取的字段及其显示名称
     const fieldMap: { [key: string]: string } = {
       'review': '评审内容',
@@ -651,7 +640,7 @@ export class DataProcessor {
       'metareview': 'Meta Review',
       'comment': '评论'
     };
-    
+
     for (const [field, displayName] of Object.entries(fieldMap)) {
       if (content[field]) {
         const value = this.safeString(content[field]);
@@ -660,7 +649,7 @@ export class DataProcessor {
         }
       }
     }
-    
+
     return result;
   }
 
@@ -669,11 +658,11 @@ export class DataProcessor {
    */
   private static formatContentAsHTML(content: { [key: string]: string }): string {
     let html = '';
-    
+
     for (const [key, value] of Object.entries(content)) {
       if (value && value.length > 0) {
         html += `<p><strong>${this.escapeHtml(key)}:</strong></p>`;
-        
+
         // 处理长文本，分段显示
         const paragraphs = value.split(/\n\s*\n/);
         for (const paragraph of paragraphs) {
@@ -683,7 +672,7 @@ export class DataProcessor {
         }
       }
     }
-    
+
     return html;
   }
 
@@ -701,7 +690,7 @@ export class DataProcessor {
     markdown += `- **作者**: ${paper.authors.join(', ')}\n`;
     markdown += `- **提取时间**: ${paper.extractedAt.toLocaleString('zh-CN')}\n`;
     if (paper.abstract) {
-      const abstractPreview = paper.abstract.length > 300 ? 
+      const abstractPreview = paper.abstract.length > 300 ?
         paper.abstract.substring(0, 300) + '...' : paper.abstract;
       markdown += `- **摘要**: ${abstractPreview}\n`;
     }
@@ -751,28 +740,28 @@ export class DataProcessor {
    */
   private static convertMarkdownToZoteroHTML(markdown: string): string {
     let html = markdown;
-    
+
     // 转换标题
     html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
     html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
-    
+
     // 转换粗体
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
+
     // 转换列表项
     html = html.replace(/^- (.*$)/gm, '<p>• $1</p>');
-    
+
     // 转换段落（处理空行）
     const lines = html.split('\n');
     const processedLines: string[] = [];
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (line.length === 0) {
         continue; // 跳过空行
       }
-      
+
       // 如果不是HTML标签，包装为段落
       if (!line.match(/^<[h1-6]|^<p>|^<strong>/)) {
         processedLines.push(`<p>${this.escapeHtml(line)}</p>`);
@@ -780,7 +769,7 @@ export class DataProcessor {
         processedLines.push(line);
       }
     }
-    
+
     return processedLines.join('');
   }
 
@@ -796,7 +785,7 @@ export class DataProcessor {
    */
   static convertMarkdownToHTML(markdown: string): string {
     if (!markdown) return '';
-    
+
     // 简单的Markdown到HTML转换
     return markdown
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // 粗体

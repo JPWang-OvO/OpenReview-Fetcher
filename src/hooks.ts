@@ -71,8 +71,6 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 
   UIExampleFactory.registerStyleSheet(win);
 
-  UIExampleFactory.registerRightClickMenuItem();
-
   UIExampleFactory.registerWindowMenuWithSeparator();
 
   // Register OpenReview UI components
@@ -163,9 +161,6 @@ function onDialogEvents(type: string) {
   switch (type) {
     case "dialogExample":
       HelperExampleFactory.dialogExample();
-      break;
-    case "openreviewDemo":
-      OpenReviewUIFactory.showOpenReviewDemo();
       break;
     case "clipboardExample":
       HelperExampleFactory.clipboardExample();

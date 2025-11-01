@@ -1,5 +1,6 @@
 import { config } from "../../package.json";
 import { getString } from "../utils/locale";
+import { OpenReviewSettingsManager, OpenReviewSettings } from "./openreview-settings";
 
 export async function registerPrefsScripts(_window: Window) {
   // This function is called when the prefs window is opened
@@ -7,125 +8,217 @@ export async function registerPrefsScripts(_window: Window) {
   if (!addon.data.prefs) {
     addon.data.prefs = {
       window: _window,
-      columns: [
-        {
-          dataKey: "title",
-          label: getString("prefs-table-title"),
-          fixedWidth: true,
-          width: 100,
-        },
-        {
-          dataKey: "detail",
-          label: getString("prefs-table-detail"),
-        },
-      ],
-      rows: [
-        {
-          title: "保存为笔记",
-          detail: "将评论保存为Zotero笔记",
-        },
-        {
-          title: "保存为附件",
-          detail: "将评论保存为文件附件",
-        },
-        {
-          title: "包含统计信息",
-          detail: "在输出中包含评论统计数据",
-        },
-      ],
     };
   } else {
     addon.data.prefs.window = _window;
   }
-  updatePrefsUI();
+  
+  await initializeSettingsControls();
   bindPrefEvents();
 }
 
-async function updatePrefsUI() {
-  // You can initialize some UI elements on prefs window
-  // with addon.data.prefs.window.document
-  // Or bind some events to the elements
-  const renderLock = ztoolkit.getGlobal("Zotero").Promise.defer();
-  if (addon.data.prefs?.window == undefined) return;
-  const tableHelper = new ztoolkit.VirtualizedTable(addon.data.prefs?.window)
-    .setContainerId(`${config.addonRef}-table-container`)
-    .setProp({
-      id: `${config.addonRef}-prefs-table`,
-      // Do not use setLocale, as it modifies the Zotero.Intl.strings
-      // Set locales directly to columns
-      columns: addon.data.prefs?.columns,
-      showHeader: true,
-      multiSelect: true,
-      staticColumns: true,
-      disableFontSizeScaling: true,
-    })
-    .setProp("getRowCount", () => addon.data.prefs?.rows.length || 0)
-    .setProp(
-      "getRowData",
-      (index) =>
-        addon.data.prefs?.rows[index] || {
-          title: "no data",
-          detail: "no data",
-        },
-    )
-    // Show a progress window when selection changes
-    .setProp("onSelectionChange", (selection) => {
-      new ztoolkit.ProgressWindow(config.addonName)
-        .createLine({
-          text: `Selected line: ${addon.data.prefs?.rows
-            .filter((v, i) => selection.isSelected(i))
-            .map((row) => row.title)
-            .join(",")}`,
-          progress: 100,
-        })
-        .show();
-    })
-    // When pressing delete, delete selected line and refresh table.
-    // Returning false to prevent default event.
-    .setProp("onKeyDown", (event: KeyboardEvent) => {
-      if (event.key == "Delete" || (Zotero.isMac && event.key == "Backspace")) {
-        addon.data.prefs!.rows =
-          addon.data.prefs?.rows.filter(
-            (v, i) => !tableHelper.treeInstance.selection.isSelected(i),
-          ) || [];
-        tableHelper.render();
+/**
+ * 初始化设置控件
+ */
+async function initializeSettingsControls() {
+  if (!addon.data.prefs?.window) return;
+  
+  // 等待DOM完全加载
+  await new Promise(resolve => {
+    if (addon.data.prefs!.window.document.readyState === 'complete') {
+      resolve(void 0);
+    } else {
+      addon.data.prefs!.window.addEventListener('load', () => resolve(void 0));
+    }
+  });
+  
+  // 加载当前设置到UI控件
+  loadCurrentSettings();
+}
+
+/**
+ * 从设置管理器加载当前值到UI控件
+ */
+function loadCurrentSettings() {
+  if (!addon.data.prefs?.window) return;
+  
+  const settings = OpenReviewSettingsManager.getCurrentSettings();
+  const doc = addon.data.prefs.window.document;
+  
+  // 设置保存模式单选按钮
+  const saveModeRadio = doc.querySelector(`#zotero-prefpane-${config.addonRef}-save-mode`) as XUL.RadioGroup;
+  if (saveModeRadio) {
+    saveModeRadio.value = settings.saveMode;
+  }
+  
+  // 设置统计信息复选框
+  const includeStatsCheckbox = doc.querySelector(`#zotero-prefpane-${config.addonRef}-include-statistics`) as XUL.Checkbox;
+  if (includeStatsCheckbox) {
+    includeStatsCheckbox.checked = settings.includeStatistics;
+    ztoolkit.log(`Loading settings: includeStatistics = ${settings.includeStatistics}, checkbox.checked = ${includeStatsCheckbox.checked}`);
+  }
+  
+  // 设置API基础URL
+  const apiUrlInput = doc.querySelector(`#zotero-prefpane-${config.addonRef}-api-base-url`) as HTMLInputElement;
+  if (apiUrlInput) {
+    apiUrlInput.value = settings.apiBaseUrl;
+  }
+  
+  // 设置最大重试次数
+  const maxRetriesInput = doc.querySelector(`#zotero-prefpane-${config.addonRef}-max-retries`) as HTMLInputElement;
+  if (maxRetriesInput) {
+    maxRetriesInput.value = settings.maxRetries.toString();
+  }
+  
+  // 设置请求超时
+  const timeoutInput = doc.querySelector(`#zotero-prefpane-${config.addonRef}-request-timeout`) as HTMLInputElement;
+  if (timeoutInput) {
+    timeoutInput.value = settings.requestTimeout.toString();
+  }
+}
+
+/**
+ * 保存设置更改
+ */
+function saveSettingsChange(key: keyof OpenReviewSettings, value: any) {
+  try {
+    if (validateSetting(key, value)) {
+      const partialSettings: Partial<OpenReviewSettings> = {};
+      partialSettings[key] = value;
+      OpenReviewSettingsManager.saveSettings(partialSettings);
+      ztoolkit.log(`Setting ${key} saved:`, value);
+    }
+  } catch (error) {
+    ztoolkit.log(`Failed to save setting ${key}:`, error);
+    showErrorMessage(`Failed to save ${key}: ${error}`);
+  }
+}
+
+/**
+ * 验证设置值
+ */
+function validateSetting(key: keyof OpenReviewSettings, value: any): boolean {
+  switch (key) {
+    case 'saveMode':
+      return value === 'html-note' || value === 'markdown-attachment';
+    
+    case 'includeStatistics':
+      return typeof value === 'boolean';
+    
+    case 'apiBaseUrl':
+      try {
+        new URL(value);
+        return true;
+      } catch {
+        showErrorMessage(getString('openreview-pref-invalid-url'));
+        return false;
+      }
+    
+    case 'maxRetries':
+      const retries = parseInt(value);
+      if (isNaN(retries) || retries < 1 || retries > 10) {
+        showErrorMessage(getString('openreview-pref-invalid-number'));
         return false;
       }
       return true;
-    })
-    // For find-as-you-type
-    .setProp(
-      "getRowString",
-      (index) => addon.data.prefs?.rows[index].title || "",
-    )
-    // Render the table.
-    .render(-1, () => {
-      renderLock.resolve();
-    });
-  await renderLock.promise;
-  ztoolkit.log("Preference table rendered!");
+    
+    case 'requestTimeout':
+      const timeout = parseInt(value);
+      if (isNaN(timeout) || timeout < 5000 || timeout > 120000) {
+        showErrorMessage(getString('openreview-pref-invalid-number'));
+        return false;
+      }
+      return true;
+    
+    default:
+      return false;
+  }
 }
 
-function bindPrefEvents() {
-  addon.data
-    .prefs!.window.document?.querySelector(
-      `#zotero-prefpane-${config.addonRef}-enable`,
-    )
-    ?.addEventListener("command", (e: Event) => {
-      ztoolkit.log(e);
-      addon.data.prefs!.window.alert(
-        `Successfully changed to ${(e.target as XUL.Checkbox).checked}!`,
-      );
-    });
+/**
+ * 重置为默认值
+ */
+function resetToDefaults() {
+  try {
+    OpenReviewSettingsManager.resetToDefaults();
+    loadCurrentSettings(); // 重新加载UI
+    showSuccessMessage(getString('openreview-pref-settings-saved'));
+    ztoolkit.log('Settings reset to defaults');
+  } catch (error) {
+    ztoolkit.log('Failed to reset settings:', error);
+    showErrorMessage(`Failed to reset settings: ${error}`);
+  }
+}
 
-  addon.data
-    .prefs!.window.document?.querySelector(
-      `#zotero-prefpane-${config.addonRef}-input`,
-    )
-    ?.addEventListener("change", (e: Event) => {
-      ztoolkit.log(e);
-      addon.data.prefs!.window.alert(
-        `Successfully changed to ${(e.target as HTMLInputElement).value}!`,
-      );
-    });
+/**
+ * 显示成功消息
+ */
+function showSuccessMessage(message: string) {
+  if (addon.data.prefs?.window) {
+    addon.data.prefs.window.alert(message);
+  }
+}
+
+/**
+ * 显示错误消息
+ */
+function showErrorMessage(message: string) {
+  if (addon.data.prefs?.window) {
+    addon.data.prefs.window.alert(message);
+  }
+}
+
+/**
+ * 绑定首选项事件
+ */
+function bindPrefEvents() {
+  if (!addon.data.prefs?.window) return;
+  
+  const doc = addon.data.prefs.window.document;
+  
+  // 保存模式单选按钮事件
+  const saveModeRadio = doc.querySelector(`#zotero-prefpane-${config.addonRef}-save-mode`) as XUL.RadioGroup;
+  saveModeRadio?.addEventListener("command", (e: Event) => {
+    const target = e.target as XUL.RadioGroup;
+    saveSettingsChange('saveMode', target.value as 'html-note' | 'markdown-attachment');
+  });
+  
+  // 统计信息复选框事件
+  const includeStatsCheckbox = doc.querySelector(`#zotero-prefpane-${config.addonRef}-include-statistics`) as XUL.Checkbox;
+  includeStatsCheckbox?.addEventListener("command", (e: Event) => {
+    const target = e.target as XUL.Checkbox;
+    ztoolkit.log(`Checkbox changed: checked = ${target.checked}`);
+    saveSettingsChange('includeStatistics', target.checked);
+  });
+  
+  // API基础URL输入框事件（带防抖）
+  const apiUrlInput = doc.querySelector(`#zotero-prefpane-${config.addonRef}-api-base-url`) as HTMLInputElement;
+  let apiUrlTimeout: number;
+  apiUrlInput?.addEventListener("input", (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    clearTimeout(apiUrlTimeout);
+    apiUrlTimeout = addon.data.prefs!.window.setTimeout(() => {
+      saveSettingsChange('apiBaseUrl', target.value);
+    }, 1000); // 1秒防抖
+  });
+  
+  // 最大重试次数输入框事件
+  const maxRetriesInput = doc.querySelector(`#zotero-prefpane-${config.addonRef}-max-retries`) as HTMLInputElement;
+  maxRetriesInput?.addEventListener("change", (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    saveSettingsChange('maxRetries', parseInt(target.value));
+  });
+  
+  // 请求超时输入框事件
+  const timeoutInput = doc.querySelector(`#zotero-prefpane-${config.addonRef}-request-timeout`) as HTMLInputElement;
+  timeoutInput?.addEventListener("change", (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    saveSettingsChange('requestTimeout', parseInt(target.value));
+  });
+  
+  // 重置按钮事件
+  const resetButton = doc.querySelector(`#zotero-prefpane-${config.addonRef}-reset-defaults`) as XUL.Button;
+  resetButton?.addEventListener("command", () => {
+    resetToDefaults();
+  });
 }

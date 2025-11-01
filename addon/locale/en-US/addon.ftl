@@ -1,6 +1,5 @@
 startup-begin = Addon is loading
 startup-finish = Addon is ready
-menuitem-label = OpenReview: Feature Demo
 menuitem-filemenulabel = Addon Template: File Menuitem
 prefs-title = Template
 prefs-table-title = Title

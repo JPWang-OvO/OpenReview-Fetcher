@@ -4,30 +4,88 @@
 <groupbox
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window });"
 >
-  <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
+  <label><html:h2 data-l10n-id="openreview-pref-title"></html:h2></label>
+  
+  <!-- 保存模式设置 -->
+  <vbox>
+    <label data-l10n-id="openreview-pref-save-mode"></label>
+    <radiogroup id="zotero-prefpane-__addonRef__-save-mode">
+      <radio 
+        id="zotero-prefpane-__addonRef__-save-mode-html" 
+        value="html-note" 
+        data-l10n-id="openreview-pref-save-mode-html"
+      />
+      <radio 
+        id="zotero-prefpane-__addonRef__-save-mode-markdown" 
+        value="markdown-attachment" 
+        data-l10n-id="openreview-pref-save-mode-markdown"
+      />
+    </radiogroup>
+  </vbox>
+  
+  <!-- 统计信息设置 -->
   <checkbox
-    id="zotero-prefpane-__addonRef__-enable"
-    preference="enable"
-    data-l10n-id="pref-enable"
+    id="zotero-prefpane-__addonRef__-include-statistics"
+    data-l10n-id="openreview-pref-include-statistics"
   />
-  <hbox>
+  
+  <!-- API基础URL设置 -->
+  <hbox align="center">
     <html:label
-      for="zotero-prefpane-__addonRef__-input"
-      data-l10n-id="pref-input"
+      for="zotero-prefpane-__addonRef__-api-base-url"
+      data-l10n-id="openreview-pref-api-base-url"
     ></html:label>
     <html:input
-      type="text"
-      id="zotero-prefpane-__addonRef__-input"
-      preference="input"
-    ></html:input>
+      type="url"
+      id="zotero-prefpane-__addonRef__-api-base-url"
+      style="flex: 1; margin-left: 10px;"
+      placeholder="https://api.openreview.net"
+    />
   </hbox>
-  <hbox class="virtualized-table-container" flex="1" height="300px">
-    <html:div id="__addonRef__-table-container" />
+  
+  <!-- 最大重试次数设置 -->
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-max-retries"
+      data-l10n-id="openreview-pref-max-retries"
+    ></html:label>
+    <html:input
+      type="number"
+      id="zotero-prefpane-__addonRef__-max-retries"
+      min="1"
+      max="10"
+      style="width: 80px; margin-left: 10px;"
+    />
   </hbox>
+  
+  <!-- 请求超时设置 -->
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-request-timeout"
+      data-l10n-id="openreview-pref-request-timeout"
+    ></html:label>
+    <html:input
+      type="number"
+      id="zotero-prefpane-__addonRef__-request-timeout"
+      min="5000"
+      max="120000"
+      step="1000"
+      style="width: 100px; margin-left: 10px;"
+    />
+  </hbox>
+  
+  <!-- 重置按钮 -->
+  <hbox>
+    <button
+      id="zotero-prefpane-__addonRef__-reset-defaults"
+      data-l10n-id="openreview-pref-reset-defaults"
+    />
+  </hbox>
+  
 </groupbox>
 <vbox>
   <html:label
-    data-l10n-id="pref-help"
+    data-l10n-id="openreview-pref-help"
     data-l10n-args='{"time": "__buildTime__","name": "__addonName__","version":"__buildVersion__"}'
   ></html:label>
 </vbox>

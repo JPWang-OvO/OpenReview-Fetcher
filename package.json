@@ -1,10 +1,10 @@
 {
-  "name": "openreview-comments-fetcher",
+  "name": "openreview-fetcher",
   "type": "module",
   "version": "0.1.0",
   "description": "A Zotero plugin to extract OpenReview comments and reviews for academic papers",
   "config": {
-    "addonName": "OpenReview Comments Fetcher",
+    "addonName": "OpenReview Fetcher",
     "addonID": "openreview@zotero.plugin",
     "addonRef": "openreview",
     "addonInstance": "OpenReview",
