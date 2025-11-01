@@ -1,3 +1,10 @@
+import {
+  BasicExampleFactory,
+  HelperExampleFactory,
+  KeyExampleFactory,
+  PromptExampleFactory,
+  UIExampleFactory,
+} from "./modules/examples";
 import { OpenReviewUIFactory } from "./modules/openreview-ui";
 import { getString, initLocale } from "./utils/locale";
 import { registerPrefsScripts } from "./modules/preferenceScript";
@@ -11,6 +18,22 @@ async function onStartup() {
   ]);
 
   initLocale();
+
+  BasicExampleFactory.registerPrefs();
+
+  BasicExampleFactory.registerNotifier();
+
+  KeyExampleFactory.registerShortcuts();
+
+  await UIExampleFactory.registerExtraColumn();
+
+  await UIExampleFactory.registerExtraColumnWithCustomCell();
+
+  UIExampleFactory.registerItemPaneCustomInfoRow();
+
+  UIExampleFactory.registerItemPaneSection();
+
+  UIExampleFactory.registerReaderItemPaneSection();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -48,6 +71,24 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 
   // Register OpenReview UI components
   OpenReviewUIFactory.registerAll(win);
+
+  UIExampleFactory.registerRightClickMenuItem();
+
+  UIExampleFactory.registerRightClickMenuPopup();
+
+  UIExampleFactory.registerWindowMenuWithSeparator();
+
+  await UIExampleFactory.registerExtraColumn();
+
+  await UIExampleFactory.registerExtraColumnWithCustomCell();
+
+  await HelperExampleFactory.registerAlertFormatterAlterPatch();
+
+  await PromptExampleFactory.registerNormalCommandExample();
+
+  await PromptExampleFactory.registerAnonymousCommandExample();
+
+  await PromptExampleFactory.registerConditionalCommandExample();
 
   await Zotero.Promise.delay(1000);
 
@@ -105,6 +146,15 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
 
 function onShortcuts(type: string) {
   switch (type) {
+    case "larger":
+      KeyExampleFactory.exampleShortcutLargerCallback();
+      break;
+    case "smaller":
+      KeyExampleFactory.exampleShortcutSmallerCallback();
+      break;
+    case "confliction":
+      KeyExampleFactory.exampleShortcutConflictingCallback();
+      break;
     default:
       break;
   }
