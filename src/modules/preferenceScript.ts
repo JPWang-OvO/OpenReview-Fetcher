@@ -31,6 +31,16 @@ async function initializeSettingsControls() {
       addon.data.prefs!.window.addEventListener('load', () => resolve(void 0));
     }
   });
+
+  // 确保偏好窗口上下文已注入对应 FTL 资源
+  try {
+    const win: any = addon.data.prefs!.window;
+    if (win?.MozXULElement?.insertFTLIfNeeded) {
+      win.MozXULElement.insertFTLIfNeeded(`${addon.data.config.addonRef}-preferences.ftl`);
+    }
+  } catch (e) {
+    ztoolkit.log('Failed to insert preferences FTL:', e);
+  }
   
   // 加载当前设置到UI控件
   loadCurrentSettings();
@@ -87,6 +97,8 @@ function saveSettingsChange(key: keyof OpenReviewSettings, value: any) {
       partialSettings[key] = value;
       OpenReviewSettingsManager.saveSettings(partialSettings);
       ztoolkit.log(`Setting ${key} saved:`, value);
+    } else {
+      loadCurrentSettings();
     }
   } catch (error) {
     ztoolkit.log(`Failed to save setting ${key}:`, error);
@@ -115,20 +127,24 @@ function validateSetting(key: keyof OpenReviewSettings, value: any): boolean {
       }
     
     case 'maxRetries':
-      const retries = parseInt(value);
-      if (isNaN(retries) || retries < 1 || retries > 10) {
-        showErrorMessage(getString('openreview-pref-invalid-number'));
-        return false;
+      {
+        const retries = parseInt(value);
+        if (isNaN(retries) || retries < 1 || retries > 10) {
+          showErrorMessage(getString('openreview-pref-invalid-number'));
+          return false;
+        }
+        return true;
       }
-      return true;
     
     case 'requestTimeout':
-      const timeout = parseInt(value);
-      if (isNaN(timeout) || timeout < 5000 || timeout > 120000) {
-        showErrorMessage(getString('openreview-pref-invalid-number'));
-        return false;
+      {
+        const timeout = parseInt(value);
+        if (isNaN(timeout) || timeout < 5000 || timeout > 120000) {
+          showErrorMessage(getString('openreview-pref-invalid-number'));
+          return false;
+        }
+        return true;
       }
-      return true;
     
     default:
       return false;

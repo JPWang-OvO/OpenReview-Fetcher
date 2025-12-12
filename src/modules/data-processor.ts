@@ -201,7 +201,7 @@ export class DataProcessor {
 
     // 构建回复映射：replyto -> [notes]
     const replyMap = new Map<string, OpenReviewNote[]>();
-    let rootNotes: OpenReviewNote[] = [];
+    const rootNotes: OpenReviewNote[] = [];
 
     for (const note of notes) {
       if (!note.replyto) {

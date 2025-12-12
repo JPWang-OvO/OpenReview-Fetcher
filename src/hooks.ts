@@ -23,7 +23,7 @@ async function onStartup() {
 
   BasicExampleFactory.registerNotifier();
 
-  KeyExampleFactory.registerShortcuts();
+  //KeyExampleFactory.registerShortcuts();
 
   await UIExampleFactory.registerExtraColumn();
 
@@ -66,11 +66,11 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   await Zotero.Promise.delay(1000);
   popupWin.changeLine({
     progress: 50,
-    text: `[50%] ${getString("openreview-startup-begin")}`,
+    text: getString("openreview-startup-progress", { args: { percent: 50, message: getString("openreview-startup-begin") } }),
   });
 
   // Register UI components that require window context
-  UIExampleFactory.registerWindowMenuWithSeparator();
+  
 
   // Register OpenReview UI components
   OpenReviewUIFactory.registerAll(win);
@@ -85,7 +85,7 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
 
   popupWin.changeLine({
     progress: 100,
-    text: `[100%] ${getString("openreview-startup-finish")}`,
+    text: getString("openreview-startup-progress", { args: { percent: 100, message: getString("openreview-startup-finish") } }),
   });
   popupWin.startCloseTimer(3000);
 }

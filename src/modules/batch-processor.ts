@@ -2,6 +2,7 @@ import { OpenReviewClient } from './openreview';
 import { DataProcessor } from './data-processor';
 import { ErrorHandler, OpenReviewError, ValidationRules } from './error-handler';
 import { OpenReviewSettingsManager } from './openreview-settings';
+import { getString } from '../utils/locale';
 
 /**
  * 单个条目的处理结果
@@ -674,24 +675,24 @@ export class BatchProcessor {
     const { totalItems, successCount, failureCount, duration } = result;
     const durationSeconds = Math.round(duration / 1000);
 
-    let summary = `批量处理完成！\n`;
-    summary += `总条目数: ${totalItems}\n`;
-    summary += `成功处理: ${successCount}\n`;
+    let summary = `${getString('openreview-batch-result-title')}\n`;
+    summary += `${getString('openreview-batch-result-total')}: ${totalItems}\n`;
+    summary += `${getString('openreview-batch-result-success')}: ${successCount}\n`;
 
     if (failureCount > 0) {
-      summary += `处理失败: ${failureCount}\n`;
+      summary += `${getString('openreview-batch-result-failure')}: ${failureCount}\n`;
 
       // 列出失败的条目
       const failedItems = result.results.filter(r => !r.success);
       if (failedItems.length > 0) {
-        summary += `\n失败的条目:\n`;
+        summary += `\n${getString('openreview-batch-result-failed-items')}:\n`;
         failedItems.forEach((item, index) => {
           summary += `${index + 1}. ${item.title}: ${item.error}\n`;
         });
       }
     }
 
-    summary += `\n总耗时: ${durationSeconds}秒 `;
+    summary += `\n${getString('openreview-batch-result-duration')}: ${durationSeconds}s`;
 
     // 添加成功条目的统计信息
     const successfulItems = result.results.filter(r => r.success);
@@ -699,9 +700,9 @@ export class BatchProcessor {
       const totalReviews = successfulItems.reduce((sum, item) => sum + (item.reviewCount || 0), 0);
       const totalComments = successfulItems.reduce((sum, item) => sum + (item.commentCount || 0), 0);
 
-      summary += `\n\n成功提取:\n`;
-      summary += `评审总数: ${totalReviews}\n`;
-      summary += `评论总数: ${totalComments}`;
+      summary += `\n\n${getString('openreview-batch-result-extracted')}:\n`;
+      summary += `${getString('openreview-batch-result-reviews')}: ${totalReviews}\n`;
+      summary += `${getString('openreview-batch-result-comments')}: ${totalComments}`;
     }
 
     return summary;

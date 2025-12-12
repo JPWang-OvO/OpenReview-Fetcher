@@ -21,3 +21,7 @@ openreview-pref-invalid-url = Please enter a valid URL
 openreview-pref-invalid-number = Please enter a valid number
 
 openreview-pref-help = { $name } Build { $version } { $time }
+
+# Input placeholder
+openreview-pref-api-base-url-input =
+    .placeholder = https://api.openreview.net

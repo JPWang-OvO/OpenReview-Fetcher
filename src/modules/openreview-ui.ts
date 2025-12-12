@@ -7,8 +7,9 @@ import { OpenReviewClient } from './openreview';
 import { DataProcessor } from './data-processor';
 import { OpenReviewSettingsManager } from './openreview-settings';
 import { ErrorHandler, OpenReviewError, ValidationRules } from './error-handler';
-import { BatchProcessor, BatchProgress, ProcessingStage, STAGE_DISPLAY_TEXT } from './batch-processor';
+import { BatchProcessor, BatchProgress, ProcessingStage } from './batch-processor';
 import { getString } from '../utils/locale';
+import { FluentMessageId } from '../../typings/i10n';
 
 export class OpenReviewUIFactory {
   /**
@@ -21,9 +22,16 @@ export class OpenReviewUIFactory {
     ztoolkit.Menu.register("item", {
       tag: "menuitem",
       id: "zotero-itemmenu-openreview-extract",
-      label: "提取OpenReview评论",
+      label: getString('openreview-menuitem-label'),
       commandListener: (ev) => this.handleExtractReviews(),
       icon: menuIcon,
+      isHidden: () => {
+        const pane = Zotero.getActiveZoteroPane();
+        if (!pane) return true;
+        const items = pane.getSelectedItems();
+        if (!items || items.length === 0) return true;
+        return !items.some((item: Zotero.Item) => item.isRegularItem() && !(item as any).isFeedItem);
+      },
     });
   }
 
@@ -37,8 +45,8 @@ export class OpenReviewUIFactory {
     const toolbarButton = ztoolkit.UI.createElement(doc, "toolbarbutton", {
       id: "openreview-toolbar-button",
       properties: {
-        label: "OpenReview",
-        tooltiptext: "提取选中条目的OpenReview评论",
+        label: getString('openreview-toolbar-button-label'),
+        tooltiptext: getString('openreview-toolbar-button-tooltip'),
         class: "zotero-tb-button",
       },
       listeners: [
@@ -72,7 +80,7 @@ export class OpenReviewUIFactory {
 
       if (selectedItems.length === 0) {
         ztoolkit.log('[DEBUG] 没有选中条目，显示警告');
-        this.showMessage("请先选择一个或多个条目", "warning");
+        this.showMessage(getString('openreview-context-select-items-warning'), "warning");
         return;
       }
 
@@ -83,9 +91,15 @@ export class OpenReviewUIFactory {
         closeTime: -1,
       })
         .createLine({
-          text: selectedItems.length === 1 ? "正在处理单个条目..." : `正在批量处理 ${selectedItems.length} 个条目...`,
+          text: selectedItems.length === 1
+            ? getString('openreview-progress-single-processing')
+            : getString('openreview-progress-batch-processing', { args: { count: selectedItems.length } }),
           type: "default",
           progress: 0,
+        })
+        .createLine({
+          text: "",
+          type: "default",
         })
         .show();
       ztoolkit.log('[DEBUG] 进度窗口已显示');
@@ -95,23 +109,24 @@ export class OpenReviewUIFactory {
         if (progressWin) {
           const { currentIndex, totalItems, currentTitle, currentStage, overallProgress, successCount, failureCount } = progress;
           
-          let statusText = '';
-          if (totalItems === 1) {
-            // 单条目处理
-            statusText = `${STAGE_DISPLAY_TEXT[currentStage]} (${currentTitle})`;
-          } else {
-            // 批量处理
-            statusText = `[${currentIndex + 1}/${totalItems}] ${currentTitle} - ${STAGE_DISPLAY_TEXT[currentStage]}`;
-            // 显示累计统计信息
-            const totalProcessed = successCount + failureCount;
-            if (totalProcessed > 0) {
-              statusText += ` (已完成: ${totalProcessed}, 成功: ${successCount}, 失败: ${failureCount})`;
-            }
-          }
+          const titleText = totalItems === 1
+            ? `${getString(stageToKey(currentStage))} (${currentTitle})`
+            : `[${currentIndex + 1}/${totalItems}] ${currentTitle} - ${getString(stageToKey(currentStage))}`;
+          const totalProcessed = successCount + failureCount;
+          const detailsText = totalItems === 1
+            ? ""
+            : (totalProcessed > 0
+              ? getString('openreview-progress-status-details', { args: { completed: totalProcessed, success: successCount, failure: failureCount } })
+              : "");
 
           progressWin.changeLine({
+            idx: 0,
             progress: Math.round(overallProgress),
-            text: statusText,
+            text: titleText,
+          });
+          progressWin.changeLine({
+            idx: 1,
+            text: detailsText,
           });
         }
       });
@@ -128,8 +143,8 @@ export class OpenReviewUIFactory {
       // 更新进度窗口为完成状态
       ztoolkit.log('[DEBUG] 更新进度窗口为完成状态');
       const finalStatusText = batchResult.totalItems === 1 
-        ? "处理完成！"
-        : `处理完成！(总计: ${batchResult.totalItems}, 成功: ${batchResult.successCount}, 失败: ${batchResult.failureCount})`;
+        ? getString('openreview-final-success-single')
+        : getString('openreview-final-summary', { args: { total: batchResult.totalItems, success: batchResult.successCount, failure: batchResult.failureCount } });
       
       progressWin.changeLine({
         progress: 100,
@@ -165,11 +180,11 @@ export class OpenReviewUIFactory {
 
       if (error instanceof OpenReviewError) {
         ztoolkit.log('[DEBUG] 显示OpenReviewError错误');
-        ErrorHandler.showUserError(error, "提取OpenReview评论");
+        ErrorHandler.showUserError(error, getString('openreview-menuitem-label'));
       } else {
         ztoolkit.log('[DEBUG] 显示通用错误:', error);
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.showMessage(`批量处理失败: ${errorMessage}`, "error");
+        this.showMessage(getString('openreview-batch-failed', { args: { message: errorMessage } }), "error");
       }
     }
   }
@@ -378,16 +393,37 @@ export class OpenReviewUIFactory {
    * 显示消息
    */
   static showMessage(text: string, type: "success" | "error" | "warning" | "default" = "default") {
-    new ztoolkit.ProgressWindow(addon.data.config.addonName, {
+    const window = new ztoolkit.ProgressWindow(addon.data.config.addonName, {
       closeOnClick: true,
       closeTime: 5000,
-    })
-      .createLine({
+    });
+
+    // 按换行符分割文本，为每一行创建一个独立的条目
+    const lines = text.split('\n');
+    let hasContent = false;
+
+    lines.forEach((line) => {
+      if (line.trim()) {
+        hasContent = true;
+        window.createLine({
+          text: line,
+          type,
+          // 只有成功类型的消息显示进度条，且只在最后一行显示（或者都不显示，这里选择不显示以保持整洁）
+          progress: type === "success" ? 100 : undefined,
+        });
+      }
+    });
+
+    // 如果没有有效内容，显示原文本
+    if (!hasContent) {
+      window.createLine({
         text,
         type,
         progress: type === "success" ? 100 : undefined,
-      })
-      .show();
+      });
+    }
+
+    window.show();
   }
 
   /**
@@ -396,19 +432,19 @@ export class OpenReviewUIFactory {
   static registerWindowMenu() {
     ztoolkit.Menu.register("menuTools", {
       tag: "menuitem",
-      label: "OpenReview - 提取选中条目的评论",
+      label: getString('openreview-menu-tools-extract'),
       commandListener: () => this.handleExtractReviews(),
     });
 
     ztoolkit.Menu.register("menuTools", {
       tag: "menuitem",
-      label: "OpenReview - 设置",
+      label: getString('openreview-menu-tools-settings'),
       commandListener: () => this.showSettings(),
     });
 
     ztoolkit.Menu.register("menuTools", {
       tag: "menuitem",
-      label: "OpenReview - 切换保存模式",
+      label: getString('openreview-menu-tools-toggle-save-mode'),
       commandListener: () => this.toggleSaveMode(),
     });
   }
@@ -434,10 +470,35 @@ export class OpenReviewUIFactory {
    */
   static registerAll(win?: _ZoteroTypes.MainWindow) {
     this.registerRightClickMenuItem();
-    this.registerWindowMenu();
+//    this.registerWindowMenu();
 
     if (win) {
       this.registerToolbarButton(win);
     }
+  }
+}
+
+function stageToKey(stage: ProcessingStage): FluentMessageId {
+  switch (stage) {
+    case ProcessingStage.FINDING_URL:
+      return 'openreview-stage-finding-url';
+    case ProcessingStage.VALIDATING_URL:
+      return 'openreview-stage-validating-url';
+    case ProcessingStage.EXTRACTING_FORUM_ID:
+      return 'openreview-stage-extracting-forum-id';
+    case ProcessingStage.FETCHING_PAPER:
+      return 'openreview-stage-fetching-paper';
+    case ProcessingStage.FETCHING_NOTES:
+      return 'openreview-stage-fetching-notes';
+    case ProcessingStage.PROCESSING_DATA:
+      return 'openreview-stage-processing-data';
+    case ProcessingStage.SAVING_CONTENT:
+      return 'openreview-stage-saving-content';
+    case ProcessingStage.COMPLETED:
+      return 'openreview-stage-completed';
+    case ProcessingStage.FAILED:
+      return 'openreview-stage-failed';
+    default:
+      return 'openreview-stage-processing-data';
   }
 }

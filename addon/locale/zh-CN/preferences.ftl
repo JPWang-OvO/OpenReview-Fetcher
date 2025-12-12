@@ -21,3 +21,7 @@ openreview-pref-invalid-url = 请输入有效的URL
 openreview-pref-invalid-number = 请输入有效的数字
 
 openreview-pref-help = { $name } Build { $version } { $time }
+
+# 输入框占位符
+openreview-pref-api-base-url-input =
+    .placeholder = https://api.openreview.net

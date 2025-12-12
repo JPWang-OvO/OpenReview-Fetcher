@@ -2,6 +2,7 @@ import { config } from "../../package.json";
 import { FluentMessageId } from "../../typings/i10n";
 
 export { initLocale, getString, getLocaleID };
+const warnedKeys = new Set<string>();
 
 /**
  * Initialize locale data
@@ -11,7 +12,11 @@ function initLocale() {
     typeof Localization === "undefined"
       ? ztoolkit.getGlobal("Localization")
       : Localization
-  )([`${config.addonRef}-addon.ftl`], true);
+  )([
+    `${config.addonRef}-addon.ftl`,
+    `${config.addonRef}-preferences.ftl`,
+    `${config.addonRef}-mainWindow.ftl`
+  ], true);
   addon.data.locale = {
     current: l10n,
   };
@@ -64,12 +69,19 @@ function _getString(
   localeString: FluentMessageId,
   options: { branch?: string | undefined; args?: Record<string, unknown> } = {},
 ): string {
-  const localStringWithPrefix = `${config.addonRef}-${localeString}`;
+  const idBase = String(localeString);
+  const localStringWithPrefix = idBase.startsWith(`${config.addonRef}-`)
+    ? idBase
+    : `${config.addonRef}-${idBase}`;
   const { branch, args } = options;
   const pattern = addon.data.locale?.current.formatMessagesSync([
     { id: localStringWithPrefix, args },
   ])[0];
   if (!pattern) {
+    if (!warnedKeys.has(localStringWithPrefix)) {
+      warnedKeys.add(localStringWithPrefix);
+      ztoolkit.log(`l10n missing key: ${localStringWithPrefix}`);
+    }
     return localStringWithPrefix;
   }
   if (branch && pattern.attributes) {
@@ -78,12 +90,23 @@ function _getString(
         return attr.value;
       }
     }
+    if (!warnedKeys.has(`${localStringWithPrefix}.${branch}`)) {
+      warnedKeys.add(`${localStringWithPrefix}.${branch}`);
+      ztoolkit.log(`l10n missing attr: ${localStringWithPrefix}.${branch}`);
+    }
     return pattern.attributes[branch] || localStringWithPrefix;
   } else {
+    if (!pattern.value) {
+      if (!warnedKeys.has(localStringWithPrefix)) {
+        warnedKeys.add(localStringWithPrefix);
+        ztoolkit.log(`l10n missing value: ${localStringWithPrefix}`);
+      }
+    }
     return pattern.value || localStringWithPrefix;
   }
 }
 
 function getLocaleID(id: FluentMessageId) {
-  return `${config.addonRef}-${id}`;
+  const idBase = String(id);
+  return idBase.startsWith(`${config.addonRef}-`) ? idBase : `${config.addonRef}-${idBase}`;
 }
