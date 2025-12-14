@@ -1,7 +1,7 @@
 {
   "name": "openreview-fetcher",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Zotero plugin to extract OpenReview comments and reviews for academic papers",
   "config": {
     "addonName": "OpenReview Fetcher",
