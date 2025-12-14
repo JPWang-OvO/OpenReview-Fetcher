@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - v**
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,7 +15,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GitHub_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,9 +26,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
 
       - name: Install deps
-        run: npm install
+        run: npm ci
 
       - name: Build
         run: |
