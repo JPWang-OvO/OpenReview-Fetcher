@@ -154,7 +154,7 @@ function validateSetting(key: keyof OpenReviewSettings, value: any): boolean {
 
     case "requestTimeout": {
       const timeout = parseInt(value);
-      if (isNaN(timeout) || timeout < 5000 || timeout > 120000) {
+      if (isNaN(timeout) || timeout < 300 || timeout > 120000) {
         showErrorMessage(getString("openreview-pref-invalid-number"));
         return false;
       }

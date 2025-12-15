@@ -24,7 +24,7 @@ export class OpenReviewUIFactory {
    * 注册右键菜单项
    */
   static registerRightClickMenuItem() {
-    const menuIcon = `chrome://${addon.data.config.addonRef}/content/icons/favicon@0.5x.png`;
+    const menuIcon = `chrome://${addon.data.config.addonRef}/content/icons/openreview_fetcher_favicon@0.5x.png`;
 
     // 在条目右键菜单中添加"提取OpenReview评论"选项
     ztoolkit.Menu.register("item", {
@@ -59,6 +59,7 @@ export class OpenReviewUIFactory {
         label: getString("openreview-toolbar-button-label"),
         tooltiptext: getString("openreview-toolbar-button-tooltip"),
         class: "zotero-tb-button",
+        image: `chrome://${addon.data.config.addonRef}/content/icons/openreview_fetcher_favicon.png`,
       },
       listeners: [
         {
@@ -117,6 +118,7 @@ export class OpenReviewUIFactory {
         .createLine({
           text: "",
           type: "default",
+          progress: undefined,
         })
         .show();
       ztoolkit.log("[DEBUG] Progress window displayed");
@@ -134,32 +136,20 @@ export class OpenReviewUIFactory {
             failureCount,
           } = progress;
 
-          const titleText =
+          const stageText = `${currentStage}`;
+          const detailText =
             totalItems === 1
-              ? `${currentStage} (${currentTitle})`
-              : `[${currentIndex + 1}/${totalItems}] ${currentTitle} - ${currentStage}`;
-          const totalProcessed = successCount + failureCount;
-          const detailsText =
-            totalItems === 1
-              ? ""
-              : totalProcessed > 0
-                ? getString("openreview-progress-status-details", {
-                    args: {
-                      completed: totalProcessed,
-                      success: successCount,
-                      failure: failureCount,
-                    },
-                  })
-                : "";
+              ? `${currentTitle}`
+              : `[${currentIndex + 1}/${totalItems}] ${currentTitle}`;
 
           progressWin.changeLine({
             idx: 0,
             progress: Math.round(overallProgress),
-            text: titleText,
+            text: stageText,
           });
           progressWin.changeLine({
             idx: 1,
-            text: detailsText,
+            text: detailText,
           });
         }
       });
@@ -189,6 +179,10 @@ export class OpenReviewUIFactory {
       progressWin.changeLine({
         progress: 100,
         text: finalStatusText,
+      });
+      progressWin.changeLine({
+        idx: 1,
+        text: "",
       });
 
       // 延迟关闭进度窗口并显示结果摘要
@@ -329,9 +323,10 @@ export class OpenReviewUIFactory {
   static registerAll(win?: _ZoteroTypes.MainWindow) {
     this.registerRightClickMenuItem();
     //this.registerWindowMenu();  // 冗余菜单. 简洁一点更好
-
+    /*
     if (win) {
       this.registerToolbarButton(win);
     }
+    */
   }
 }

@@ -11,6 +11,7 @@ import {
   OpenReviewNote,
 } from "./openreview";
 import { getString } from "../utils/locale";
+import { OpenReviewSettingsManager } from "./openreview-settings";
 
 export interface ProcessedReview {
   id: string;
@@ -612,17 +613,20 @@ export class DataProcessor {
       html += `<p><strong>${getString("openreview-report-field-abstract")}:</strong> ${this.escapeHtml(paper.abstract)}</p>`;
     }
 
-    // 统计信息
-    html += `<h2>📊 ${getString("openreview-report-section-statistics")}</h2>`;
-    html += `<p><strong>${getString("openreview-report-field-total-notes")}:</strong> ${tree.statistics.totalNotes}</p>`;
-    html += `<p><strong>${getString("openreview-report-field-author-response-count")}:</strong> ${tree.statistics.authorResponseCount}</p>`;
-    html += `<p><strong>${getString("openreview-report-field-other-comment-count")}:</strong> ${tree.statistics.commentCount}</p>`;
+    const includeStatistics =
+      OpenReviewSettingsManager.getCurrentSettings().includeStatistics;
+    if (includeStatistics) {
+      html += `<h2>📊 ${getString("openreview-report-section-statistics")}</h2>`;
+      html += `<p><strong>${getString("openreview-report-field-total-notes")}:</strong> ${tree.statistics.totalNotes}</p>`;
+      html += `<p><strong>${getString("openreview-report-field-author-response-count")}:</strong> ${tree.statistics.authorResponseCount}</p>`;
+      html += `<p><strong>${getString("openreview-report-field-other-comment-count")}:</strong> ${tree.statistics.commentCount}</p>`;
 
-    if (paper.statistics.averageRating) {
-      html += `<p><strong>${getString("openreview-report-field-average-rating")}:</strong> ${paper.statistics.averageRating.toFixed(1)}</p>`;
-    }
-    if (paper.statistics.averageConfidence) {
-      html += `<p><strong>${getString("openreview-report-field-average-confidence")}:</strong> ${paper.statistics.averageConfidence.toFixed(1)}</p>`;
+      if (paper.statistics.averageRating) {
+        html += `<p><strong>${getString("openreview-report-field-average-rating")}:</strong> ${paper.statistics.averageRating.toFixed(1)}</p>`;
+      }
+      if (paper.statistics.averageConfidence) {
+        html += `<p><strong>${getString("openreview-report-field-average-confidence")}:</strong> ${paper.statistics.averageConfidence.toFixed(1)}</p>`;
+      }
     }
 
     // review 对话树 - 跳过Paper根节点，直接处理其子节点
@@ -798,19 +802,22 @@ export class DataProcessor {
     }
     markdown += "\n";
 
-    // 统计信息
-    markdown += `## 📊 ${getString("openreview-report-section-statistics")}\n\n`;
-    markdown += `- **${getString("openreview-report-field-total-notes")}**: ${tree.statistics.totalNotes}\n`;
-    markdown += `- **${getString("openreview-report-field-author-response-count")}**: ${tree.statistics.authorResponseCount}\n`;
-    markdown += `- **${getString("openreview-report-field-other-comment-count")}**: ${tree.statistics.commentCount}\n`;
+    const includeStatistics =
+      OpenReviewSettingsManager.getCurrentSettings().includeStatistics;
+    if (includeStatistics) {
+      markdown += `## 📊 ${getString("openreview-report-section-statistics")}\n\n`;
+      markdown += `- **${getString("openreview-report-field-total-notes")}**: ${tree.statistics.totalNotes}\n`;
+      markdown += `- **${getString("openreview-report-field-author-response-count")}**: ${tree.statistics.authorResponseCount}\n`;
+      markdown += `- **${getString("openreview-report-field-other-comment-count")}**: ${tree.statistics.commentCount}\n`;
 
-    if (paper.statistics.averageRating) {
-      markdown += `- **${getString("openreview-report-field-average-rating")}**: ${paper.statistics.averageRating.toFixed(1)}\n`;
+      if (paper.statistics.averageRating) {
+        markdown += `- **${getString("openreview-report-field-average-rating")}**: ${paper.statistics.averageRating.toFixed(1)}\n`;
+      }
+      if (paper.statistics.averageConfidence) {
+        markdown += `- **${getString("openreview-report-field-average-confidence")}**: ${paper.statistics.averageConfidence.toFixed(1)}\n`;
+      }
+      markdown += "\n";
     }
-    if (paper.statistics.averageConfidence) {
-      markdown += `- **${getString("openreview-report-field-average-confidence")}**: ${paper.statistics.averageConfidence.toFixed(1)}\n`;
-    }
-    markdown += "\n";
 
     // 对话树 - 跳过Paper根节点，直接处理其子节点
     if (tree.rootNode && tree.rootNode.children) {
@@ -926,16 +933,19 @@ export class DataProcessor {
     }
     markdown += "\n";
 
-    // 统计信息
-    markdown += `## 📊 ${getString("openreview-report-section-statistics")}\n\n`;
-    markdown += `- **${getString("openreview-report-field-total-reviews")}**: ${paper.statistics.totalReviews}\n`;
-    if (paper.statistics.averageRating) {
-      markdown += `- **${getString("openreview-report-field-average-rating")}**: ${paper.statistics.averageRating.toFixed(1)}\n`;
+    const includeStatistics =
+      OpenReviewSettingsManager.getCurrentSettings().includeStatistics;
+    if (includeStatistics) {
+      markdown += `## 📊 ${getString("openreview-report-section-statistics")}\n\n`;
+      markdown += `- **${getString("openreview-report-field-total-reviews")}**: ${paper.statistics.totalReviews}\n`;
+      if (paper.statistics.averageRating) {
+        markdown += `- **${getString("openreview-report-field-average-rating")}**: ${paper.statistics.averageRating.toFixed(1)}\n`;
+      }
+      if (paper.statistics.averageConfidence) {
+        markdown += `- **${getString("openreview-report-field-average-confidence")}**: ${paper.statistics.averageConfidence.toFixed(1)}\n`;
+      }
+      markdown += "\n";
     }
-    if (paper.statistics.averageConfidence) {
-      markdown += `- **${getString("openreview-report-field-average-confidence")}**: ${paper.statistics.averageConfidence.toFixed(1)}\n`;
-    }
-    markdown += "\n";
 
     // 评审详情
     if (paper.reviews.length > 0) {

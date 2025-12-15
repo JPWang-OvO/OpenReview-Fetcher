@@ -21,7 +21,7 @@ export class OpenReviewSettingsManager {
       includeStatistics: true,
       apiBaseUrl: "https://api.openreview.net",
       maxRetries: 3,
-      requestTimeout: 30000,
+      requestTimeout: 1000,
     };
   }
 

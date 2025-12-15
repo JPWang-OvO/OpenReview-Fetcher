@@ -1,4 +1,4 @@
-openreview-pref-title = OpenReview Comments Fetcher Settings
+openreview-pref-title = OpenReview Fetcher Settings
 openreview-pref-enable =
     .label = Enable Plugin
 openreview-pref-input = API Base URL

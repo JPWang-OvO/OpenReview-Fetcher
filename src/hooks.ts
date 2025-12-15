@@ -21,19 +21,15 @@ async function onStartup() {
 
   BasicExampleFactory.registerPrefs();
 
-  BasicExampleFactory.registerNotifier();
+  //BasicExampleFactory.registerNotifier();
 
   //KeyExampleFactory.registerShortcuts();
 
-  await UIExampleFactory.registerExtraColumn();
+  //await UIExampleFactory.registerExtraColumn();
 
-  await UIExampleFactory.registerExtraColumnWithCustomCell();
+  //await UIExampleFactory.registerExtraColumnWithCustomCell();
 
-  UIExampleFactory.registerItemPaneCustomInfoRow();
-
-  UIExampleFactory.registerItemPaneSection();
-
-  UIExampleFactory.registerReaderItemPaneSection();
+  await Promise.resolve();
 
   await Promise.all(
     Zotero.getMainWindows().map((win) => onMainWindowLoad(win)),
@@ -76,11 +72,11 @@ async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
   // Register OpenReview UI components
   OpenReviewUIFactory.registerAll(win);
 
-  await PromptExampleFactory.registerNormalCommandExample();
+  //await PromptExampleFactory.registerNormalCommandExample();
 
-  await PromptExampleFactory.registerAnonymousCommandExample(win);
+  //await PromptExampleFactory.registerAnonymousCommandExample(win);
 
-  await PromptExampleFactory.registerConditionalCommandExample();
+  //await PromptExampleFactory.registerConditionalCommandExample();
 
   await Zotero.Promise.delay(1000);
 
